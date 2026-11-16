@@ -1,0 +1,18 @@
+{
+  "name": "weeklies",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Admin console for faculties, courses, batches, master flows and rooms.",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning server.js",
+    "set-password": "node --env-file-if-exists=.env --disable-warning=ExperimentalWarning scripts/set-password.js",
+    "test":"node --disable-warning=ExperimentalWarning --test \"test/*.test.js\""
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}

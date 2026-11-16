@@ -1,0 +1,4 @@
+Faculty Code,Name,Courses,Subjects,Topics,Week-offs
+EX01,Example Faculty One,"CAT, CMAT","QA, DILR","Arithmetic; Numbers; Algebra",Sun
+EX02,Example Faculty Two,CAT,VA,"Reading Comprehension; Critical Reasoning; Grammar","Mon, Thu"
+EX03,Example Faculty Three,"CLAT, IPMAT",VA,,"Sat-Sun"

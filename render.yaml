@@ -1,0 +1,26 @@
+# Render deployment. Secrets marked sync: false are entered in Render's dashboard and are
+# never stored in this file.
+services:
+  - type: web
+    name: weeklies
+    runtime: docker
+    region: singapore
+    plan: starter
+    healthCheckPath: /healthz
+    disk:
+      name: weeklies-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GOOGLE_SHEET_ID
+        sync: false
+      - key: GOOGLE_SHEET_TAB
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: SHEET_SYNC_MINUTES
+        value: "5"

@@ -1,0 +1,5 @@
+node_modules/
+# Student records and access keys must never reach a repository.
+data/
+secrets/
+.env
