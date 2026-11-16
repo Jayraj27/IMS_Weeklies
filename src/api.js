@@ -699,6 +699,8 @@ api.put('/batches/:id', (req, res) => {
   const batch = findOr404('batches', req.params.id, 'batch');
   const name = text(req.body.name, 'Batch code', { max: 60 });
   const year = whole(req.body.year, 'Year', 2000, 2100);
+  const mode = req.body.mode === undefined ? batch.mode : req.body.mode;
+  if (!['classroom', 'online'].includes(mode)) throw invalid('A batch is either classroom or online.');
 
   if (normalizeCode(name) !== normalizeCode(batch.name) && activeStudentCount(batch.id)) {
     throw conflict('This code comes from the student sheet and has active students. Change it in the sheet instead.');
@@ -730,7 +732,7 @@ api.put('/batches/:id', (req, res) => {
   if (startDate && endDate && endDate < startDate) throw invalid('The end date is before the start date.');
 
   tx(() => {
-    db.prepare('UPDATE batches SET name = ?, year = ?, start_date = ?, end_date = ? WHERE id = ?').run(name, year, startDate, endDate, batch.id);
+    db.prepare('UPDATE batches SET name = ?, year = ?, start_date = ?, end_date = ?, mode = ? WHERE id = ?').run(name, year, startDate, endDate, mode, batch.id);
     db.prepare('DELETE FROM batch_assignments WHERE batch_id = ?').run(batch.id);
     slots.forEach((s, i) => writeSlot(batch.id, i, s));
     if (newTimings) writeTimings(batch.id, newTimings);

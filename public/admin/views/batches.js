@@ -143,6 +143,7 @@ function substituteRow(slot, courseId, redraw) {
 
 function batchDialog(batch) {
   const fromSheet = batch.active_students > 0;
+  const onlineBox = h('input', { type: 'checkbox', checked: batch.mode === 'online' });
   const name = h('input', { required: true, maxLength: 60, value: batch.name, readOnly: fromSheet });
   const year = h('input', { type: 'number', required: true, min: 2000, max: 2100, value: batch.year });
   const startDate = h('input', { type: 'date', 'aria-label': 'Batch start date', value: batch.start_date ?? '', onchange: drawUpcoming });
@@ -279,6 +280,7 @@ function batchDialog(batch) {
     wide: true,
     body: [
       h('div', { class: 'field-row' }, field('Batch code', name, fromSheet ? 'Comes from the student sheet.' : null), field('Year', year)),
+      h('label', { class: 'check', style: 'margin-bottom:14px' }, onlineBox, 'Online batch: its classes go in the Online column and need no room'),
       h('div', { class: 'field' },
         h('span', { class: 'label' }, 'Timetable'),
         h('div', { class: 'field-row' }, field('Start date', startDate), field('End date (optional)', endDate)),
@@ -304,6 +306,7 @@ function batchDialog(batch) {
         year: Number(year.value),
         assignments: slots,
         timings: flatTimings(),
+        mode: onlineBox.checked ? 'online' : 'classroom',
         start_date: startDate.value,
         end_date: endDate.value,
       }, `${name.value.trim()} saved`);
@@ -353,7 +356,7 @@ function batchTable(group) {
           h(
             'tr',
             null,
-            h('td', null, h('button', { class: 'batch-open', type: 'button', onclick: () => batchDialog(b) }, b.name)),
+            h('td', null, h('button', { class: 'batch-open', type: 'button', onclick: () => batchDialog(b) }, b.name), b.mode === 'online' ? h('span', { class: 'chip accent', style: 'margin-left:6px' }, 'Online') : null),
             h('td', null, b.student_count
               ? h('a', { href: `#/students?batch=${encodeURIComponent(b.name)}`, title: `${b.student_count} in the sheet, including inactive` }, b.active_students)
               : h('span', { class: 'chip', title: 'No student in the sheet has this batch code yet' }, 'Planned')),

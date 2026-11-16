@@ -315,3 +315,32 @@ if (version() < 8) {
     db.exec('PRAGMA user_version = 8');
   });
 }
+if (version() < 9) {
+  tx(() => {
+    db.exec(`
+      -- Where each class happens. Online classes share one Online column and need no room.
+      ALTER TABLE schedule_classes ADD COLUMN room_id INTEGER REFERENCES rooms(id) ON DELETE SET NULL;
+      ALTER TABLE schedule_classes ADD COLUMN online INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE batches ADD COLUMN mode TEXT NOT NULL DEFAULT 'classroom' CHECK (mode IN ('classroom','online'));
+
+      -- Anything on the grid that isn't a batch's class: meetings, workshops, value-added sessions.
+      CREATE TABLE schedule_events (
+        id         INTEGER PRIMARY KEY,
+        date       TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time   TEXT NOT NULL,
+        title      TEXT NOT NULL,
+        room_id    INTEGER REFERENCES rooms(id) ON DELETE SET NULL,
+        online     INTEGER NOT NULL DEFAULT 0,
+        CHECK (start_time < end_time)
+      );
+      CREATE INDEX schedule_events_date ON schedule_events(date);
+      CREATE TABLE schedule_event_faculty (
+        event_id   INTEGER NOT NULL REFERENCES schedule_events(id) ON DELETE CASCADE,
+        faculty_id INTEGER NOT NULL REFERENCES faculties(id) ON DELETE CASCADE,
+        PRIMARY KEY (event_id, faculty_id)
+      );
+    `);
+    db.exec('PRAGMA user_version = 9');
+  });
+}

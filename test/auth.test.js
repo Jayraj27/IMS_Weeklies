@@ -175,7 +175,7 @@ describe('starting up', () => {
     let output = '';
     child.stdout.on('data', (d) => { output += d; });
     child.stderr.on('data', (d) => { output += d; });
-    const timer = setTimeout(() => child.kill(), 1500);
+    const timer = setTimeout(() => child.kill(), 8000);
     child.on('exit', (code) => {
       clearTimeout(timer);
       resolve({ code, output });

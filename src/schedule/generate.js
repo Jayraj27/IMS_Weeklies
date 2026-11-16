@@ -69,15 +69,36 @@ export function chooseFaculty({ subject, slots, date, start_time, end_time, facu
 }
 
 /**
- * batches: [{ id, name, timings, start_date, end_date, slots, sessions, unavailable, occupied }]
+ * Picks a room for a class of `size` students: the batch's usual room if it's free and big
+ * enough, otherwise the smallest free room that seats them. Rooms with no seat count are a
+ * last resort. Returns a room id, or null if nothing free fits.
+ */
+export function chooseRoom({ size, rooms, bookings, date, start_time, end_time, preferred }) {
+  const slot = { date, start_time, end_time };
+  const free = rooms.filter((r) => !bookings.some((b) => b.room_id === r.id && overlaps(b, slot)));
+  const fits = (r) => r.capacity == null || r.capacity >= size;
+  const usual = free.find((r) => r.id === preferred && fits(r));
+  if (usual) return usual.id;
+  const byName = (a, b) => a.name.localeCompare(b.name, 'en', { numeric: true });
+  const sized = free.filter((r) => r.capacity != null && r.capacity >= size).sort((a, b) => a.capacity - b.capacity || byName(a, b));
+  if (sized.length) return sized[0].id;
+  return free.filter((r) => r.capacity == null).sort(byName)[0]?.id ?? null;
+}
+
+/**
+ * batches: [{ id, name, timings, start_date, end_date, slots, sessions, unavailable, occupied,
+ *   size, online, preferred_room_id }]
  *   sessions: the flow's sessions in order; unavailable: a Set of session ids already
  *   finished or planned elsewhere; occupied: class times this week that are kept as they are.
- * bookings: other faculty commitments this week. It is added to as classes are planned.
+ * bookings: other faculty commitments this week; roomBookings: rooms already taken this week.
+ * Both are added to as classes are planned.
  */
-export function generateWeek({ weekStart, batches, faculties, bookings }) {
+export function generateWeek({ weekStart, batches, faculties, bookings, rooms = [], roomBookings = [] }) {
   const weekEnd = addDays(weekStart, 6);
   const facultyById = new Map(faculties.map((f) => [f.id, f]));
   const booked = [...bookings];
+  const roomsTaken = [...roomBookings];
+  const usualRoom = new Map(batches.map((b) => [b.id, b.preferred_room_id ?? null]));
   const queues = new Map();
   const classes = [];
 
@@ -95,7 +116,14 @@ export function generateWeek({ weekStart, batches, faculties, bookings }) {
   return classes.map((c) => {
     const { batch } = c;
     const session = queues.get(batch.id).shift() ?? null;
-    const planned = { batch_id: batch.id, date: c.date, start_time: c.start_time, end_time: c.end_time, session_id: session?.id ?? null, faculty_id: null, flags: [] };
+    const planned = { batch_id: batch.id, date: c.date, start_time: c.start_time, end_time: c.end_time, session_id: session?.id ?? null, faculty_id: null, room_id: null, online: batch.online ? 1 : 0, flags: [] };
+    if (!batch.online) {
+      planned.room_id = chooseRoom({ size: batch.size ?? 0, rooms, bookings: roomsTaken, date: c.date, start_time: c.start_time, end_time: c.end_time, preferred: usualRoom.get(batch.id) });
+      if (planned.room_id) {
+        roomsTaken.push({ room_id: planned.room_id, date: c.date, start_time: c.start_time, end_time: c.end_time });
+        usualRoom.set(batch.id, planned.room_id);
+      }
+    }
     if (!session) {
       planned.flags.push('No sessions left in this batch’s master flow.');
       return planned;

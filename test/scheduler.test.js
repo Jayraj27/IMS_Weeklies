@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { realFetch, signIn } from './sign-in.js';
-import { chooseFaculty, generateWeek, subjectMatches, weekStartOf } from '../src/schedule/generate.js';
+import { chooseFaculty, chooseRoom, generateWeek, subjectMatches, weekStartOf } from '../src/schedule/generate.js';
 
 /* ---------- the rules ---------- */
 
@@ -81,6 +81,59 @@ describe('scheduling rules', () => {
     assert.notEqual(sundayOne[0].faculty_id, sundayOne[1].faculty_id);
   });
 
+  const rooms = [
+    { id: 1, name: 'Achievers', capacity: 42 },
+    { id: 2, name: 'Believers', capacity: 40 },
+    { id: 3, name: 'Creators', capacity: 33 },
+    { id: 4, name: 'Store room', capacity: null },
+  ];
+  const sunday = { date: '2026-11-22', start_time: '13:00', end_time: '15:00' };
+
+  test('the smallest free room that seats the batch is chosen', () => {
+    assert.equal(chooseRoom({ ...sunday, size: 30, rooms, bookings: [] }), 3);
+    assert.equal(chooseRoom({ ...sunday, size: 35, rooms, bookings: [] }), 2);
+    assert.equal(chooseRoom({ ...sunday, size: 41, rooms, bookings: [] }), 1);
+  });
+
+  test('a taken room is skipped; the usual room wins when it is free and fits', () => {
+    const taken = [{ room_id: 3, ...sunday, start_time: '14:00' }];
+    assert.equal(chooseRoom({ ...sunday, size: 30, rooms, bookings: taken }), 2);
+    assert.equal(chooseRoom({ ...sunday, size: 30, rooms, bookings: [], preferred: 1 }), 1);
+    assert.equal(chooseRoom({ ...sunday, size: 41, rooms, bookings: [], preferred: 2 }), 1, 'a usual room that is too small is passed over');
+  });
+
+  test('rooms without a seat count are a last resort, and nothing fitting means no room', () => {
+    assert.equal(chooseRoom({ ...sunday, size: 50, rooms, bookings: [] }), 4);
+    assert.equal(chooseRoom({ ...sunday, size: 50, rooms: rooms.slice(0, 3), bookings: [] }), null);
+  });
+
+  test('generated classes get rooms, keep their room through the week, and online batches get none', () => {
+    const plan = generateWeek({
+      weekStart: '2026-11-16',
+      batches: [batch({ size: 30 }), batch({ id: 2, name: '27CA02', size: 30, online: true })],
+      faculties: [...faculties.values()],
+      bookings: [],
+      rooms,
+      roomBookings: [],
+    });
+    const classroom = plan.filter((c) => c.batch_id === 1);
+    assert.ok(classroom.every((c) => c.room_id === 3 && c.online === 0));
+    assert.ok(plan.filter((c) => c.batch_id === 2).every((c) => c.room_id === null && c.online === 1));
+  });
+
+  test('two batches at the same time get different rooms', () => {
+    const plan = generateWeek({
+      weekStart: '2026-11-16',
+      batches: [batch({ size: 30 }), batch({ id: 2, name: '27CA02', size: 30 })],
+      faculties: [...faculties.values()],
+      bookings: [],
+      rooms,
+      roomBookings: [],
+    });
+    const atOne = plan.filter((c) => c.date === '2026-11-22' && c.start_time === '13:00');
+    assert.deepEqual(atOne.map((c) => c.room_id).sort(), [2, 3]);
+  });
+
   test('batch dates, kept classes and an exhausted flow are respected', () => {
     const plan = generateWeek({
       weekStart: '2026-11-16',
@@ -143,6 +196,8 @@ describe('schedule API', () => {
     ];
     await call('POST', '/flows', { course_id: course, name: 'CAT 2027', scope: 'course', sessions });
     for (const code of ['27CA01', '27CA02', '27CA07']) await call('POST', '/batches', { course_id: course, code });
+    await call('POST', '/rooms', { name: 'Big Room', capacity: 60 });
+    await call('POST', '/rooms', { name: 'Small Room', capacity: 1 });
 
     const s = await state();
     const batch = (name) => s.batches.find((b) => b.name === name);
@@ -212,7 +267,8 @@ describe('schedule API', () => {
     const after = (await week(`&batch=${ids.b1.id}`))[0];
     assert.equal(after.faculty_code, 'TU');
     assert.equal(after.edited, true);
-    assert.match(after.flags[0], /TU has Sun off/);
+    assert.deepEqual(after.flags, [], 'the generator’s note no longer applies once someone chooses');
+    assert.ok(after.warnings.includes('TU has Sun off.'), JSON.stringify(after.warnings));
 
     const otherFlow = await call('PUT', `/schedule/classes/${first.id}`, { session_id: 999999 });
     assert.equal(otherFlow.status, 400);
@@ -252,6 +308,74 @@ describe('schedule API', () => {
     const progress = (await state()).batches.find((b) => b.id === ids.b2.id).progress;
     assert.equal(progress.done, 2);
     assert.ok((await week(`&batch=${ids.b2.id}`)).every((c) => c.status === 'done'));
+  });
+
+  test('moving a class to another room or time shows clashes as soon as the week is read', async () => {
+    const rooms = (await state()).rooms;
+    const small = rooms.find((r) => r.name === 'Small Room').id;
+    const big = rooms.find((r) => r.name === 'Big Room').id;
+    const [a, b] = (await call('GET', `/schedule?week=2026-11-23`)).body.classes.filter((c) => c.date === '2026-11-29' && c.status !== 'cancelled');
+    assert.ok(a && b, 'two classes to work with');
+
+    // Same room, same time: both are flagged. Too small a room is flagged too.
+    await call('PUT', `/schedule/classes/${a.id}`, { room_id: small, start_time: '13:00', end_time: '15:00' });
+    await call('PUT', `/schedule/classes/${b.id}`, { room_id: small, start_time: '14:00', end_time: '16:00' });
+    let week = (await call('GET', '/schedule?week=2026-11-23')).body.classes;
+    const warn = (id) => week.find((c) => c.id === id).warnings.join(' ');
+    assert.match(warn(a.id), /Small Room is also booked for/);
+    assert.match(warn(b.id), /Small Room is also booked for/);
+
+    // Moving one away clears the clash; online needs no room.
+    await call('PUT', `/schedule/classes/${b.id}`, { online: true });
+    week = (await call('GET', '/schedule?week=2026-11-23')).body.classes;
+    assert.doesNotMatch(warn(a.id), /also booked/);
+    assert.equal(week.find((c) => c.id === b.id).room_id, null);
+    assert.equal(week.find((c) => c.id === b.id).online, true);
+    assert.equal(week.find((c) => c.id === b.id).edited, true);
+
+    await call('PUT', `/schedule/classes/${a.id}`, { room_id: big });
+    assert.equal((await call('PUT', `/schedule/classes/${a.id}`, { start_time: '15:00', end_time: '14:00' })).status, 400);
+    assert.equal((await call('PUT', `/schedule/classes/${a.id}`, { date: '2026-02-30' })).status, 400);
+    assert.equal((await call('PUT', `/schedule/classes/${a.id}`, { room_id: 999999 })).status, 404);
+  });
+
+  test('a meeting block takes its room and faculty out of the generator’s hands, and shows clashes', async () => {
+    const rooms = (await state()).rooms;
+    const big = rooms.find((r) => r.name === 'Big Room').id;
+    const made = await call('POST', '/schedule/events', {
+      title: 'IPMAT 2027 planning', date: '2026-12-06', start_time: '13:00', end_time: '17:00', room_id: big, faculty_ids: [ids.PS, ids.SV],
+    });
+    assert.equal(made.status, 201, made.body?.error);
+    const gen = await call('POST', '/schedule/generate', { week: '2026-11-30', batch_id: ids.b2.id });
+    assert.equal(gen.status, 200);
+    const plan = (await call('GET', '/schedule?week=2026-11-30')).body;
+    const sunday = plan.classes.filter((c) => c.date === '2026-12-06');
+    assert.ok(sunday.length);
+    assert.ok(sunday.every((c) => c.room_id !== big), 'the meeting’s room is not given to a class');
+    assert.ok(sunday.every((c) => c.faculty_code !== 'PS' && c.faculty_code !== 'SV'), JSON.stringify(sunday.map((c) => c.faculty_code)));
+    assert.equal(plan.events.length, 1);
+    assert.deepEqual(plan.events[0].faculty_ids.sort(), [ids.PS, ids.SV].sort());
+
+    // Putting a class in the meeting's room flags both.
+    await call('PUT', `/schedule/classes/${sunday[0].id}`, { room_id: big });
+    const after = (await call('GET', '/schedule?week=2026-11-30')).body;
+    assert.match(after.events[0].warnings.join(' '), /Big Room is also booked/);
+    assert.equal((await call('GET', `/schedule?week=2026-11-30&batch=${ids.b2.id}`)).body.events.length, 0, 'blocks show only on the all-batches view');
+
+    assert.equal((await call('PUT', `/schedule/events/${made.body.id}`, { title: '' })).status, 400);
+    assert.equal((await call('PUT', `/schedule/events/${made.body.id}`, { start_time: '14:00' })).status, 200);
+    assert.equal((await call('POST', '/schedule/events', { title: 'x', date: '2026-12-06', start_time: '13:00', end_time: '12:00' })).status, 400);
+    assert.equal((await call('DELETE', `/schedule/events/${made.body.id}`)).status, 204);
+    assert.equal((await call('DELETE', `/schedule/events/${made.body.id}`)).status, 404);
+  });
+
+  test('marking a batch online moves its next generated classes to the Online column', async () => {
+    const b = (await state()).batches.find((x) => x.id === ids.b2.id);
+    assert.equal((await call('PUT', `/batches/${b.id}`, { name: b.name, year: b.year, assignments: b.assignments, mode: 'online' })).status, 200);
+    assert.equal((await call('PUT', `/batches/${b.id}`, { name: b.name, year: b.year, assignments: b.assignments, mode: 'hybrid' })).status, 400);
+    await call('POST', '/schedule/generate', { week: '2026-12-07', batch_id: b.id });
+    const classes = (await call('GET', `/schedule?week=2026-12-07&batch=${b.id}`)).body.classes;
+    assert.ok(classes.length && classes.every((c) => c.online && c.room_id === null));
   });
 
   test('a done class needs a session', async () => {

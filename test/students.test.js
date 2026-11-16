@@ -508,7 +508,10 @@ describe('sync', () => {
       DROP TABLE student_sync_runs;
       ALTER TABLE courses DROP COLUMN variant_keywords;
       DROP TABLE variant_courses;
+      DROP TABLE schedule_event_faculty;
+      DROP TABLE schedule_events;
       DROP TABLE schedule_classes;
+      ALTER TABLE batches DROP COLUMN mode;
       ALTER TABLE batches DROP COLUMN source;
       DROP TABLE faculty_topics;
       DROP TABLE batch_assignment_substitutes;

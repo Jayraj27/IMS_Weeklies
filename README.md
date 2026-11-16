@@ -89,6 +89,15 @@ leaks, delete that key in Google Cloud and create a new one.
   dates. Upload with Batches > Upload timetable: Batch, Weekdays, Start Time, End Time,
   Start Date, End Date, one row per set of hours. Times without AM or PM before 7:00 are
   refused rather than guessed, and dates are read day first.
+- **Weekly schedule:** Generate week fills each batch's classes with the next unfinished
+  sessions of its master flow. Each class gets the faculty in that subject's slot, or a
+  substitute if they're on week-off or already teaching, and the smallest free room that
+  seats the batch's active students. Batches marked online go in the shared Online column.
+  The day grid shows rooms across and times down: drag a block to move it, click it to
+  edit, and double-click empty space or use Add block for meetings. Room and faculty
+  clashes, week-offs and rooms that are too small are flagged on the block. Marking a class
+  done records its session in Batch progress. Subjects must be named the same in the flow
+  and the slots: QA matches QA, but VA doesn't match VARC.
 - **Students' courses** come from the sheet's Current Variant. Each variant is ticked into
   one course, either in that course's Edit dialog or from the list under Courses > Current
   Variants. Nothing is assigned by itself, so a new variant in the sheet waits, and is
