@@ -5,6 +5,7 @@
  */
 
 import { h, store, api, refresh, pageHead, button, formDialog, confirmDialog, toast, plural, field, checkGroup } from '../lib.js';
+import { EVENT_COLOURS, colourFor } from '../colours.js';
 import { WEEK, addDays, formatDate, formatTime, todayIso, weekdayOf } from '../calendar.js';
 
 const view = { week: null, day: null, batch: '', mode: 'grid', colour: 'faculty' };
@@ -20,19 +21,6 @@ const subjectMatches = (session, slot) => {
   const [a, b] = [String(session ?? '').trim().toLowerCase(), String(slot ?? '').trim().toLowerCase()];
   return Boolean(a && b) && (a === b || words(a).includes(b));
 };
-
-// Light fills with a strong edge, so the text stays readable whatever the colour.
-const PALETTE = [
-  ['#dbeafe', '#1d4ed8'], ['#dcfce7', '#15803d'], ['#fef3c7', '#b45309'], ['#fce7f3', '#be185d'],
-  ['#ede9fe', '#6d28d9'], ['#ccfbf1', '#0f766e'], ['#ffedd5', '#c2410c'], ['#e0e7ff', '#4338ca'],
-  ['#f3e8ff', '#7e22ce'], ['#fee2e2', '#b91c1c'], ['#ecfccb', '#4d7c0f'], ['#e0f2fe', '#0369a1'],
-];
-function colourFor(key) {
-  if (!key) return ['#f1f0ea', '#8a8a80'];
-  let hash = 0;
-  for (const ch of String(key)) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return PALETTE[hash % PALETTE.length];
-}
 
 const weekLabel = (weekStart) => `${formatDate(weekStart)} – ${formatDate(addDays(weekStart, 6))}`;
 const roomsSorted = () => [...store.state.rooms].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
@@ -209,7 +197,7 @@ function block(item, range) {
   const top = (toMinutes(item.start_time) - range.start) * PX_PER_MINUTE;
   const height = Math.max(22, (toMinutes(item.end_time) - toMinutes(item.start_time)) * PX_PER_MINUTE - 2);
   const key = isEvent ? null : view.colour === 'batch' ? item.batch_name : item.faculty_code;
-  const [fill, edge] = isEvent ? ['#eeece5', '#5d6474'] : colourFor(key);
+  const [fill, edge] = isEvent ? EVENT_COLOURS : colourFor(key);
   const width = 100 / item.lanes;
   const hasWarning = item.warnings.length > 0;
 
@@ -548,6 +536,7 @@ export function scheduleView(query) {
     'div',
     null,
     pageHead('Weekly schedule', 'Generate the week, then check and change it on the day grid. Each class gets the next session of its batch’s master flow, the faculty in that subject’s slot, and the smallest free room that seats the batch.',
+      button('Download spreadsheet', () => { window.location.href = `/api/schedule/export?week=${view.week}&colour=${view.colour}`; }),
       button('Print', () => window.print()),
       button('Add block', () => eventDialog(null)),
       button('Mark week done', markDone),

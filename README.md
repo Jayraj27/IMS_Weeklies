@@ -96,7 +96,9 @@ leaks, delete that key in Google Cloud and create a new one.
   The day grid shows rooms across and times down: drag a block to move it, click it to
   edit, and double-click empty space or use Add block for meetings. Room and faculty
   clashes, week-offs and rooms that are too small are flagged on the block. Marking a class
-  done records its session in Batch progress. Subjects must be named the same in the flow
+  done records its session in Batch progress. Download spreadsheet saves the whole week as
+  one .xlsx file: a tab per day laid out like the day grid, and an "All classes" tab with a
+  row per class that can be sorted and filtered. Subjects must be named the same in the flow
   and the slots: QA matches QA, but VA doesn't match VARC.
 - **Students' courses** come from the sheet's Current Variant. Each variant is ticked into
   one course, either in that course's Edit dialog or from the list under Courses > Current

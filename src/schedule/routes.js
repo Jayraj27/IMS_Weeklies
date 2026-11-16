@@ -11,6 +11,7 @@ import express from 'express';
 import { db, tx } from '../db.js';
 import { addDays, isIsoDate, isTime, weekdayOf } from '../../public/admin/calendar.js';
 import { generateWeek, overlaps, weekStartOf } from './generate.js';
+import { weekWorkbook } from './export.js';
 
 export const scheduleRouter = express.Router();
 
@@ -158,6 +159,26 @@ scheduleRouter.get('/', (req, res) => {
     classes: week.classes.filter((c) => !batchId || c.batch_id === batchId).map((c) => ({ ...c, warnings: warnings.get(`class:${c.id}`) ?? [] })),
     events: batchId ? [] : week.events.map((e) => ({ ...e, warnings: warnings.get(`event:${e.id}`) ?? [] })),
   });
+});
+
+// The whole week as one .xlsx file: a tab per day like the Day grid, and a list of every class.
+scheduleRouter.get('/export', (req, res) => {
+  const weekStart = weekOf(req.query.week);
+  const week = loadWeek(weekStart);
+  const warnings = findWarnings(week);
+  const file = weekWorkbook({
+    weekStart,
+    classes: week.classes.map((c) => ({ ...c, warnings: warnings.get(`class:${c.id}`) ?? [] })),
+    events: week.events.map((e) => ({ ...e, warnings: warnings.get(`event:${e.id}`) ?? [] })),
+    rooms: roomList(),
+    faculties: facultyList(),
+    colourBy: req.query.colour === 'batch' ? 'batch' : 'faculty',
+  });
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="schedule-week-of-${weekStart}.xlsx"`,
+  });
+  res.send(file);
 });
 
 /* ---------- generating ---------- */

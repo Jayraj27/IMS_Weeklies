@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { realFetch, signIn } from './sign-in.js';
+import { unzip } from './unzip.js';
 import { chooseFaculty, chooseRoom, generateWeek, subjectMatches, weekStartOf } from '../src/schedule/generate.js';
 
 /* ---------- the rules ---------- */
@@ -384,5 +385,25 @@ describe('schedule API', () => {
     const res = await call('PUT', `/schedule/classes/${cls.id}`, { status: 'done' });
     assert.equal(res.status, 400);
     assert.match(res.body.error, /Choose the session/);
+  });
+
+  test('the week downloads as one spreadsheet, a tab per day plus every class', async () => {
+    assert.equal((await realFetch(`${BASE}/schedule/export?week=${WEEK}`)).status, 401);
+    assert.equal((await fetch(`${BASE}/schedule/export?week=someday`)).status, 400);
+
+    const res = await fetch(`${BASE}/schedule/export?week=${WEEK}`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /spreadsheetml/);
+    assert.match(res.headers.get('content-disposition'), /attachment; filename="schedule-week-of-2026-11-16\.xlsx"/);
+    const files = unzip(Buffer.from(await res.arrayBuffer()));
+    const names = [...files['xl/workbook.xml'].matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(names, ['Mon 16 Nov', 'Tue 17 Nov', 'Wed 18 Nov', 'Thu 19 Nov', 'Fri 20 Nov', 'Sat 21 Nov', 'Sun 22 Nov', 'All classes']);
+
+    const classes = await week();
+    const sunday = files['xl/worksheets/sheet7.xml'];
+    assert.match(sunday, /Big Room – 60/);
+    for (const c of classes.filter((x) => x.status !== 'cancelled')) assert.ok(sunday.includes(c.batch_name), c.batch_name);
+    const list = files['xl/worksheets/sheet8.xml'];
+    assert.equal((list.match(/<row /g) ?? []).length, classes.length + 1, 'a heading row and one row per class');
   });
 });
