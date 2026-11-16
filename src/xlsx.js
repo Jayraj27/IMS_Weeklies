@@ -3,7 +3,7 @@
  * frozen panes, filters, print setup) without a dependency. The file opens in Excel,
  * LibreOffice and Google Sheets.
  *
- * buildXlsx([{ name, rows, merges, cols, rowHeights, freeze, filter, repeatRows, landscape }])
+ * buildXlsx([{ name, rows, merges, cols, rowHeights, freeze, filter, repeatRows, repeatCols, landscape, fitWidth, colBreaks }])
  *   rows:   arrays of cells; a cell is text, a number, null, or { v, s } with a style
  *   style:  { bold, size, color, fill, wrap, h, v, border, borderColor, borderWeight }
  *   merges: ['B4:B7', ...]
@@ -97,12 +97,16 @@ function sheetXml(sheet, styles) {
   const merges = sheet.merges?.length
     ? `<mergeCells count="${sheet.merges.length}">${sheet.merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>`
     : '';
+  // A page break after each listed column number, e.g. so each day prints on its own pages.
+  const colBreaks = sheet.colBreaks?.length
+    ? `<colBreaks count="${sheet.colBreaks.length}" manualBreakCount="${sheet.colBreaks.length}">${sheet.colBreaks.map((n) => `<brk id="${n}" max="1048575" man="1"/>`).join('')}</colBreaks>`
+    : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-${sheet.landscape ? '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' : ''}<dimension ref="A1:${cellRef(Math.max(0, rows.length - 1), width - 1)}"/>
+${sheet.fitWidth ? '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' : ''}<dimension ref="A1:${cellRef(Math.max(0, rows.length - 1), width - 1)}"/>
 <sheetViews><sheetView workbookViewId="0">${freeze}</sheetView></sheetViews>
 <sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rowXml}</sheetData>${sheet.filter ? `<autoFilter ref="${sheet.filter}"/>` : ''}${merges}
-<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>${sheet.landscape ? '<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>' : ''}
+<pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>${sheet.landscape ? `<pageSetup orientation="landscape"${sheet.fitWidth ? ' fitToWidth="1" fitToHeight="0"' : ''}/>` : ''}${colBreaks}
 </worksheet>`;
 }
 
@@ -125,8 +129,13 @@ export function buildXlsx(sheets) {
   const quoted = (i) => `'${xml(names[i]).replace(/'/g, "''")}'`;
   const filterNames = sheets.map((s, i) => [
     s.filter ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">${quoted(i)}!${s.filter.replace(/([A-Z]+)(\d+)/g, '$$$1$$$2')}</definedName>` : '',
-    // Rows printed again at the top of every page, e.g. the room names.
-    s.repeatRows ? `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${quoted(i)}!$1:$${s.repeatRows}</definedName>` : '',
+    // Columns and rows printed again on every page, e.g. the times and the room names.
+    s.repeatRows || s.repeatCols
+      ? `<definedName name="_xlnm.Print_Titles" localSheetId="${i}">${[
+          s.repeatCols ? `${quoted(i)}!$A:$${columnName(s.repeatCols - 1)}` : '',
+          s.repeatRows ? `${quoted(i)}!$1:$${s.repeatRows}` : '',
+        ].filter(Boolean).join(',')}</definedName>`
+      : '',
   ].join('')).join('');
 
   files.push(

@@ -56,31 +56,37 @@ describe('week export', () => {
   ];
   const events = [{ id: 1, title: 'Faculty meeting', date: '2026-11-16', start_time: '11:00', end_time: '12:00', room_id: 1, room_name: 'Room 10', online: false, faculty_ids: [1, 2], warnings: [] }];
   const files = unzip(weekWorkbook({ weekStart: '2026-11-16', classes, events, rooms, faculties }));
-  const monday = files['xl/worksheets/sheet1.xml'];
+  const week = files['xl/worksheets/sheet1.xml'];
 
-  test('one tab per day of the week, then the list of every class', () => {
-    assert.deepEqual(sheetNames(files), ['Mon 16 Nov', 'Tue 17 Nov', 'Wed 18 Nov', 'Thu 19 Nov', 'Fri 20 Nov', 'Sat 21 Nov', 'Sun 22 Nov', 'All classes']);
+  test('the whole week is one tab, then the list of every class', () => {
+    assert.deepEqual(sheetNames(files), ['Week of 16 Nov', 'All classes']);
   });
 
-  test('a day tab has rooms across in number order, Online, and who is off', () => {
-    const t = texts(monday);
-    assert.equal(t[0], 'Monday, 16 Nov 2026');
-    assert.equal(t[1], 'Week off: AB');
-    assert.deepEqual(t.slice(2, 6), ['Time', 'Room 2 – 30', 'Room 10 – 40', 'Online']);
-    assert.ok(!t.includes('No room yet'), 'only shown on days that need it');
-    assert.ok(texts(files['xl/worksheets/sheet2.xml']).includes('No room yet'));
+  test('days sit side by side, each with its rooms in number order, Online, and who is off', () => {
+    const t = texts(week);
+    assert.equal(t[0], 'Schedule, week of 16 Nov 2026 – 22 Nov 2026');
+    assert.deepEqual(t.slice(1, 8), ['Monday, 16 Nov', 'Tuesday, 17 Nov', 'Wednesday, 18 Nov', 'Thursday, 19 Nov', 'Friday, 20 Nov', 'Saturday, 21 Nov', 'Sunday, 22 Nov']);
+    assert.deepEqual(t.slice(8, 10), ['Week off: AB', 'Week off: nobody']);
+    // Monday: Room 2 (two columns for its clash) B–C, Room 10 D, Online E; divider F.
+    // Tuesday: Room 2 G, Room 10 H, Online I, and No room yet J, needed only that day.
+    assert.deepEqual(t.slice(15, 23), ['Time', 'Room 2 – 30', 'Room 10 – 40', 'Online', 'Room 2 – 30', 'Room 10 – 40', 'Online', 'No room yet']);
+    assert.equal(t.filter((x) => x === 'No room yet').length, 1);
+    const m = merges(week);
+    assert.ok(m.includes('B2:E2') && m.includes('G2:J2'), 'each day name spans its rooms');
+    assert.match(week, /<c r="F10" s="\d+"\/>/, 'the divider column runs down the grid');
+    assert.match(week, /<colBreaks count="6"/, 'each day prints on its own pages');
   });
 
   test('each class is one block covering its half-hours, and a clash gets its own column', () => {
-    // Rows: 3 above the grid, then 7:00 am in row 4, so 6:00 pm is row 26.
-    // Room 2 holds two overlapping classes, so it spans B and C; Room 10 is D, Online is E.
-    const m = merges(monday);
-    assert.ok(m.includes('B3:C3'), 'room heading spans both columns');
-    assert.ok(m.includes('B26:B29'), '6 to 8 pm');
-    assert.ok(m.includes('C28:C31'), '7 to 9 pm, beside it');
-    assert.ok(m.includes('D12:D13'), 'the meeting, 11 to 12');
-    assert.ok(m.includes('E8:E11'), '9:15 to 10:45 covers the 9:00 to 10:30 rows');
-    const t = texts(monday);
+    // Rows: 4 above the grid, then 7:00 am in row 5, so 6:00 pm is row 27.
+    const m = merges(week);
+    assert.ok(m.includes('B4:C4'), 'room heading spans both columns');
+    assert.ok(m.includes('B27:B30'), '6 to 8 pm');
+    assert.ok(m.includes('C29:C32'), '7 to 9 pm, beside it');
+    assert.ok(m.includes('D13:D14'), 'the meeting, 11 to 12');
+    assert.ok(m.includes('E9:E12'), '9:15 to 10:45 covers the 9:00 to 10:30 rows');
+    assert.ok(m.includes('J27:J30'), 'Tuesday’s class without a room');
+    const t = texts(week);
     assert.ok(t.includes('CD\nQA 1.5 Percentages\nTEST01\n6:00 pm – 8:00 pm'));
     assert.ok(t.some((x) => x.startsWith('CD\nQA 1.5 Percentages\nTEST02') && x.includes('⚠ Room 2 is also booked')));
     assert.ok(t.includes('Faculty meeting\nAB/CD\n11:00 am – 12:00 pm'));
@@ -89,11 +95,11 @@ describe('week export', () => {
   });
 
   test('the list tab has every class, cancelled ones and blocks included', () => {
-    const list = texts(files['xl/worksheets/sheet8.xml']);
+    const list = texts(files['xl/worksheets/sheet2.xml']);
     for (const name of ['TEST01', 'TEST02', 'TEST03', 'TEST04', 'TEST05', 'Faculty meeting', 'Cancelled', 'Online', 'No room yet.']) {
       assert.ok(list.includes(name), name);
     }
-    assert.match(files['xl/worksheets/sheet8.xml'], /<autoFilter ref="A1:R7"\/>/);
+    assert.match(files['xl/worksheets/sheet2.xml'], /<autoFilter ref="A1:R7"\/>/);
     assert.match(files['xl/workbook.xml'], /_xlnm._FilterDatabase/);
   });
 });
