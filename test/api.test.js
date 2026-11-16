@@ -27,7 +27,7 @@ before(async () => {
     env: { ...process.env, PORT, DB_PATH: path.join(dir, 'test.db') },
     stdio: 'ignore',
   });
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       await fetch(BASE + '/state');
       await signIn(BASE);

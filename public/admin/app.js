@@ -7,6 +7,7 @@ import { flowsView, flowEditorView } from './views/flows.js';
 import { roomsView } from './views/rooms.js';
 import { studentsView } from './views/students.js';
 import { progressView } from './views/progress.js';
+import { scheduleView } from './views/schedule.js';
 
 const NAV = [
   { path: '', label: 'Overview' },
@@ -14,6 +15,7 @@ const NAV = [
   { path: 'courses', label: 'Courses', count: (s) => s.courses.length },
   { path: 'batches', label: 'Batches', count: (s) => s.batches.length },
   { path: 'flows', label: 'Master flows', count: (s) => s.flows.length },
+  { path: 'schedule', label: 'Weekly schedule' },
   { path: 'progress', label: 'Batch progress' },
   { path: 'rooms', label: 'Rooms', count: (s) => s.rooms.length },
   { path: 'students', label: 'Students', count: (s) => s.student_count },
@@ -31,6 +33,7 @@ function viewFor({ parts, query }) {
     case 'courses': return coursesView();
     case 'batches': return batchesView(query);
     case 'flows': return parts[1] ? flowEditorView(parts[1], query) : flowsView();
+    case 'schedule': return scheduleView(query);
     case 'progress': return progressView(query);
     case 'rooms': return roomsView();
     case 'students': return studentsView(query);

@@ -7,7 +7,8 @@ export const ADMIN = { username: 'test-admin', password: 'correct-horse-battery'
 process.env.ADMIN_USERNAME = ADMIN.username;
 process.env.ADMIN_PASSWORD = ADMIN.password;
 
-const realFetch = globalThis.fetch;
+/** fetch without the test session, for checking what signed-out visitors get. */
+export const realFetch = globalThis.fetch;
 
 export async function signIn(base) {
   const res = await realFetch(`${base}/auth/login`, {

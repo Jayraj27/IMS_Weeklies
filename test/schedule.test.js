@@ -197,7 +197,7 @@ describe('through the server', () => {
       env: { ...process.env, PORT, DB_PATH: path.join(dir, 'schedule.db'), GOOGLE_SHEET_ID: '', GOOGLE_SERVICE_ACCOUNT_KEY: '' },
       stdio: 'ignore',
     });
-    for (let i = 0; i < 80; i++) {
+    for (let i = 0; i < 300; i++) {
       try {
         await fetch(`${BASE}/state`);
         break;

@@ -291,3 +291,27 @@ if (version() < 7) {
     db.exec('PRAGMA user_version = 7');
   });
 }
+if (version() < 8) {
+  tx(() => {
+    db.exec(`
+      -- One class of one batch on one date. "edited" means someone changed its session or
+      -- faculty by hand, so regenerating the week would overwrite their choice.
+      CREATE TABLE schedule_classes (
+        id         INTEGER PRIMARY KEY,
+        batch_id   INTEGER NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+        date       TEXT NOT NULL,
+        start_time TEXT NOT NULL,
+        end_time   TEXT NOT NULL,
+        session_id INTEGER REFERENCES flow_sessions(id) ON DELETE SET NULL,
+        faculty_id INTEGER REFERENCES faculties(id) ON DELETE SET NULL,
+        status     TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned','done','cancelled')),
+        edited     INTEGER NOT NULL DEFAULT 0,
+        note       TEXT,
+        flags      TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE INDEX schedule_classes_date ON schedule_classes(date);
+      CREATE INDEX schedule_classes_batch ON schedule_classes(batch_id, date);
+    `);
+    db.exec('PRAGMA user_version = 8');
+  });
+}

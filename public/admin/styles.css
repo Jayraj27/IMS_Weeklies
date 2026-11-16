@@ -439,6 +439,38 @@ select.sub-add { width: auto; font-size: .85rem; padding: 2px 6px; max-width: 24
 .variant-checklist { max-height: 300px; }
 select.variant-course { width: auto; min-width: 140px; padding: 4px 8px; }
 select.variant-course.unset { border-color: var(--warn); background: var(--warn-soft); }
+.week-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 14px; }
+.week-bar .week-label { min-width: 210px; text-align: center; }
+.week-bar input[type="date"] { width: auto !important; }
+.week-bar select { width: auto; max-width: 260px; }
+.schedule-table td { vertical-align: top; }
+.session-cell { min-width: 260px; }
+.session-cell .btn { margin-top: 2px; padding-left: 0; }
+.session-cell a.small-text { display: inline-block; margin: 2px 14px 0 0; }
+select.class-faculty { width: 230px; font-size: .88rem; padding: 4px 6px; }
+select.class-status { width: auto; font-size: .88rem; padding: 4px 6px; }
+select.status-done { background: #e4f2e8; border-color: var(--ok); }
+select.status-cancelled { background: #eeece5; }
+tr.class-row.cancelled td { color: var(--muted); text-decoration: line-through; }
+tr.class-row.cancelled td select { text-decoration: none; }
+.class-flags { margin-top: 4px; font-size: .82rem; max-width: 300px; }
+.flag-warn { color: var(--warn); }
+.flag-info { color: var(--muted); }
+details.panel.attention { padding: 10px 16px; }
+details.panel.attention summary { cursor: pointer; font-weight: 600; }
+.print-only { display: none; }
+@media print {
+  .sidebar, .no-print, #toasts, .page-head .row-actions, .page-head p { display: none !important; }
+  .shell { display: block; }
+  main { padding: 0; }
+  body { background: #fff; }
+  .print-only { display: inline; }
+  .class-flags { display: none; }
+  .print-title { display: block; font-size: 1.2rem; margin: 0 0 8px; }
+  .page-head h1 { display: none; }
+  .table-wrap { border-color: #999; overflow: visible; }
+  tr { break-inside: avoid; }
+}
 .check-note { display: block; font-size: .78rem; line-height: 1.25; }
 .sessions .col-code { min-width: 110px; width: 11%; }
 .sessions .col-area { min-width: 120px; width: 13%; }

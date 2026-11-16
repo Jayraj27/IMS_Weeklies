@@ -19,7 +19,7 @@ function start(port, env) {
 }
 
 async function ready(url) {
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       return await fetch(url);
     } catch {

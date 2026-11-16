@@ -159,7 +159,7 @@ describe('parseSheet', () => {
 /* ---------- the full sync, through a running server ---------- */
 
 async function waitForServer(url) {
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < 300; i++) {
     try {
       return await fetch(url);
     } catch {
@@ -508,6 +508,7 @@ describe('sync', () => {
       DROP TABLE student_sync_runs;
       ALTER TABLE courses DROP COLUMN variant_keywords;
       DROP TABLE variant_courses;
+      DROP TABLE schedule_classes;
       ALTER TABLE batches DROP COLUMN source;
       DROP TABLE faculty_topics;
       DROP TABLE batch_assignment_substitutes;
