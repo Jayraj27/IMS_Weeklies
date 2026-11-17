@@ -5,7 +5,7 @@ import {
 import {
   WEEK, addDays, classesBetween, describeTiming, formatDate, formatTime, groupTimings, todayIso,
 } from '../calendar.js';
-import { assignmentUpload, timetableUpload } from './uploads.js';
+import { assignmentUpload, courseSheetDialog, timetableUpload } from './uploads.js';
 
 const filter = { course: '', year: '' };
 
@@ -434,7 +434,7 @@ export function batchesView(query) {
   return h(
     'div',
     null,
-    pageHead('Batches', subtitle, button('Upload batch faculty', assignmentUpload), button('Upload timetable', timetableUpload), add),
+    pageHead('Batches', subtitle, button('Course faculty sheet', courseSheetDialog), button('Upload batch faculty', assignmentUpload), button('Upload timetable', timetableUpload), add),
     attentionPanel(),
     filters,
     groups.length

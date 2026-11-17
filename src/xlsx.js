@@ -3,7 +3,7 @@
  * frozen panes, filters, print setup) without a dependency. The file opens in Excel,
  * LibreOffice and Google Sheets.
  *
- * buildXlsx([{ name, rows, merges, cols, rowHeights, freeze, filter, repeatRows, repeatCols, landscape, fitWidth, colBreaks }])
+ * buildXlsx([{ name, rows, merges, cols, rowHeights, freeze, filter, repeatRows, repeatCols, landscape, fitWidth, colBreaks, validations }])
  *   rows:   arrays of cells; a cell is text, a number, null, or { v, s } with a style
  *   style:  { bold, size, color, fill, wrap, h, v, border, borderColor, borderWeight }
  *   merges: ['B4:B7', ...]
@@ -53,7 +53,8 @@ function styleBook() {
     const align = style.wrap || style.h || style.v
       ? `<alignment${style.h ? ` horizontal="${style.h}"` : ''}${style.v ? ` vertical="${style.v}"` : ''}${style.wrap ? ' wrapText="1"' : ''}/>`
       : '';
-    const xf = `<xf numFmtId="0" fontId="${indexOf(fonts, font)}" fillId="${indexOf(fills, fill)}" borderId="${indexOf(borders, border)}" xfId="0" applyFont="1" applyFill="1" applyBorder="1"${align ? ' applyAlignment="1">' + align + '</xf>' : '/>'}`;
+    // style.text: the cell keeps what is typed, so Excel doesn't turn 18:00 into a time.
+    const xf = `<xf numFmtId="${style.text ? 49 : 0}" fontId="${indexOf(fonts, font)}" fillId="${indexOf(fills, fill)}" borderId="${indexOf(borders, border)}" xfId="0" applyFont="1" applyFill="1" applyBorder="1"${style.text ? ' applyNumberFormat="1"' : ''}${align ? ' applyAlignment="1">' + align + '</xf>' : '/>'}`;
     const at = xfs.push(xf) - 1;
     seen.set(key, at);
     return at;
@@ -97,6 +98,11 @@ function sheetXml(sheet, styles) {
   const merges = sheet.merges?.length
     ? `<mergeCells count="${sheet.merges.length}">${sheet.merges.map((m) => `<mergeCell ref="${m}"/>`).join('')}</mergeCells>`
     : '';
+  // Dropdowns: { sqref: 'B2:B200', list: ['MWF', 'TTS'] } or { sqref, source: "'Sheet'!$A$2:$A$9" }.
+  // They warn about other values rather than refuse them, so an unusual entry can still be typed.
+  const validations = sheet.validations?.length
+    ? `<dataValidations count="${sheet.validations.length}">${sheet.validations.map((v) => `<dataValidation type="list" errorStyle="warning" allowBlank="1" showInputMessage="1" showErrorMessage="1"${v.error ? ` errorTitle="Not in the list" error="${xml(v.error)}"` : ''}${v.prompt ? ` prompt="${xml(v.prompt)}"` : ''} sqref="${v.sqref}"><formula1>${xml(v.list ? `"${v.list.join(',')}"` : v.source)}</formula1></dataValidation>`).join('')}</dataValidations>`
+    : '';
   // A page break after each listed column number, e.g. so each day prints on its own pages.
   const colBreaks = sheet.colBreaks?.length
     ? `<colBreaks count="${sheet.colBreaks.length}" manualBreakCount="${sheet.colBreaks.length}">${sheet.colBreaks.map((n) => `<brk id="${n}" max="1048575" man="1"/>`).join('')}</colBreaks>`
@@ -105,7 +111,7 @@ function sheetXml(sheet, styles) {
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
 ${sheet.fitWidth ? '<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' : ''}<dimension ref="A1:${cellRef(Math.max(0, rows.length - 1), width - 1)}"/>
 <sheetViews><sheetView workbookViewId="0">${freeze}</sheetView></sheetViews>
-<sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rowXml}</sheetData>${sheet.filter ? `<autoFilter ref="${sheet.filter}"/>` : ''}${merges}
+<sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${rowXml}</sheetData>${sheet.filter ? `<autoFilter ref="${sheet.filter}"/>` : ''}${merges}${validations}
 <pageMargins left="0.3" right="0.3" top="0.4" bottom="0.4" header="0.2" footer="0.2"/>${sheet.landscape ? `<pageSetup orientation="landscape"${sheet.fitWidth ? ' fitToWidth="1" fitToHeight="0"' : ''}/>` : ''}${colBreaks}
 </worksheet>`;
 }

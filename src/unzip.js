@@ -1,4 +1,4 @@
-// Reads a zip archive (such as an .xlsx) into { name: text }, for checking exports.
+// Reads a zip archive (such as an .xlsx) into { name: text }.
 import zlib from 'node:zlib';
 
 export function unzip(buffer) {

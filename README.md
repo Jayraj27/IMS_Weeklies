@@ -85,6 +85,15 @@ leaks, delete that key in Google Cloud and create a new one.
 - **Batch faculty:** each slot has one primary faculty and substitutes in order of
   preference. Upload with Batches > Upload batch faculty: Batch, Slot, Faculty Code,
   Substitutes, one row per batch and slot.
+- **Course faculty sheet** (Batches > Course faculty sheet): one spreadsheet per course with
+  a row per batch: Batch, Days (MWF, TTS or Sunday), Start time and End time as 24-hour
+  HH:MM, Mentor, then two columns per subject in the course's master flows, such as QA1 and
+  QA2: 1 is the primary faculty, 2 the substitute. Upload the master flow first, since its
+  subjects become the columns. The download comes filled with what's saved now. A batch
+  with more sets of hours gets more rows with only Days and times filled. Uploading shows
+  every change first and saves all or nothing. Each subject becomes one slot per batch (old
+  QA1/QA2 slots merge into one QA slot); empty days leave the hours alone, and an empty
+  faculty cell clears that slot.
 - **Batch timetable:** weekdays and hours, which can differ by day, plus start and end
   dates. Upload with Batches > Upload timetable: Batch, Weekdays, Start Time, End Time,
   Start Date, End Date, one row per set of hours. Times without AM or PM before 7:00 are

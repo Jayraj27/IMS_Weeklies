@@ -1,6 +1,7 @@
 /* The three bulk uploads. Each shows what it read before anything is saved. */
 
-import { h, field, formDialog, save, toast, plural, store } from '../lib.js';
+import { h, api, checkGroup, field, formDialog, save, toast, plural, store } from '../lib.js';
+import { courseSubjects } from '../course-sheet.js';
 import { parseAssignmentUpload, parseFacultyUpload, parseTimetableUpload } from '../imports.js';
 import { formatDate, formatTime, weekdayOf } from '../calendar.js';
 
@@ -123,4 +124,119 @@ export function timetableUpload() {
       toast(`Timetable saved for ${plural(result.batches, 'batch', 'batches')}`);
     },
   });
+}
+
+/* ---------- the course faculty sheet ---------- */
+
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+/**
+ * Pick a course, download its sheet (one row per batch, a pair of faculty columns per
+ * master flow subject), then upload it filled in. Every change is listed before saving.
+ */
+export function courseSheetDialog() {
+  const courses = [...store.state.courses].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }));
+  const flowsOf = (courseId) => store.state.flows.filter((f) => f.course_id === courseId);
+  const course = h('select', { 'aria-label': 'Course', onchange: () => { showSubjects(); reset(); } },
+    courses.map((c) => h('option', { value: c.id }, c.name)));
+  const subjectSlot = h('div');
+  const file = h('input', { type: 'file', accept: '.xlsx,.csv', 'aria-label': 'Choose the filled sheet', onchange: () => check() });
+  const preview = h('div', { role: 'status' });
+  let picks = null;
+  let upload = null;
+  let report = null;
+
+  function showSubjects() {
+    const subjects = courseSubjects(flowsOf(Number(course.value)));
+    if (!subjects.length) {
+      picks = null;
+      subjectSlot.replaceChildren(h('p', { class: 'hint', style: 'color:var(--danger)' },
+        'This course has no master flow yet. Upload its master flow first: the subjects in it become the sheet’s columns.'));
+      return;
+    }
+    picks = checkGroup(
+      'Subject columns',
+      subjects.map((s) => ({
+        value: s.subject,
+        label: `${s.subject} (${s.subject}1, ${s.subject}2)`,
+        title: s.covered_by ? `${s.subject} sessions go to the ${s.covered_by} slot, so it needs no columns of its own.` : `${plural(s.sessions, 'session')} in the master flow`,
+      })),
+      subjects.filter((s) => !s.covered_by).map((s) => s.subject),
+      { hint: `Found in the master flow, most sessions first. Mentor is always included. Subjects such as “TEST QA” start unticked because the scheduler gives them to the QA faculty. 1 is the primary faculty, 2 the substitute.` },
+    );
+    subjectSlot.replaceChildren(picks);
+  }
+
+  function reset() {
+    file.value = '';
+    upload = null;
+    report = null;
+    preview.replaceChildren();
+  }
+
+  function download() {
+    if (!picks) return toast('Upload this course’s master flow first.', true);
+    const subjects = picks.values();
+    window.location.href = `/api/courses/${course.value}/faculty-sheet?subjects=${encodeURIComponent(subjects.join(','))}`;
+  }
+
+  async function check() {
+    report = null;
+    // A message about the previous file no longer applies.
+    const oldError = file.closest('dialog')?.querySelector('.form-error');
+    if (oldError) oldError.hidden = true;
+    const chosen = file.files[0];
+    if (!chosen) return preview.replaceChildren();
+    preview.replaceChildren(h('p', { class: 'hint' }, 'Reading the sheet…'));
+    try {
+      upload = { file: toBase64(await chosen.arrayBuffer()), name: chosen.name };
+      report = await api('POST', `/courses/${course.value}/faculty-sheet`, upload);
+    } catch (err) {
+      preview.replaceChildren(h('p', { class: 'hint', style: 'color:var(--danger)' }, err.message));
+      return;
+    }
+    const danger = { class: 'hint', style: 'color:var(--danger)' };
+    const changed = report.batches.filter((b) => b.changes.length);
+    preview.replaceChildren(
+      ...report.errors.slice(0, 8).map((e) => h('p', danger, e)),
+      ...(report.errors.length > 8 ? [h('p', danger, `…and ${report.errors.length - 8} more.`)] : []),
+      report.errors.length ? h('p', danger, h('b', null, 'Fix these in the sheet and choose it again. Nothing has been saved.')) : '',
+      h('p', { class: 'hint' }, h('b', null, `${plural(report.batches.length, 'batch', 'batches')} read; ${changed.length ? `${plural(changed.length, 'batch', 'batches')} will change` : 'nothing would change'}.`)),
+      changed.length
+        ? h('div', { class: 'table-wrap upload-preview' },
+            h('table', null,
+              h('thead', null, h('tr', null, h('th', null, 'Batch'), h('th', null, 'Changes'))),
+              h('tbody', null, changed.map((b) => h('tr', null, h('td', null, b.name), h('td', null, b.changes.map((c) => h('div', null, c))))))))
+        : '',
+      ...report.notes.slice(0, 6).map((n) => h('p', { class: 'hint' }, `Note: ${n}`)),
+      report.notes.length > 6 ? h('p', { class: 'hint' }, `…and ${plural(report.notes.length - 6, 'more note')}.`) : '',
+    );
+  }
+
+  formDialog({
+    title: 'Course faculty sheet',
+    wide: true,
+    submitLabel: 'Save changes',
+    body: [
+      h('p', { class: 'hint' }, 'One sheet per course: a row per batch with its days, hours and faculty. Download it (it comes filled with what’s saved now), fill it in Excel or Google Sheets, and upload it here.'),
+      field('Course', course),
+      subjectSlot,
+      h('div', { class: 'row-actions', style: 'margin:4px 0 12px' }, h('button', { class: 'btn', type: 'button', onclick: download }, 'Download template')),
+      field('Upload the filled sheet (.xlsx or .csv)', file),
+      preview,
+    ],
+    onSubmit: async () => {
+      if (!upload) throw new Error('Choose the filled sheet first.');
+      if (!report) throw new Error('The sheet is still being read. Try again in a moment.');
+      if (report.errors.length) throw new Error('Fix the problems listed above first. Nothing has been saved.');
+      const result = await save('POST', `/courses/${course.value}/faculty-sheet`, { ...upload, apply: true });
+      toast(`Saved: ${plural(result.changed, 'batch', 'batches')} changed`);
+    },
+  });
+  showSubjects();
 }

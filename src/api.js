@@ -6,7 +6,9 @@ import { syncStatus } from './students/sync.js';
 import { activeStudentCount, linkReport, reconcileStudentLinks } from './students/link.js';
 import { normalizeCode, variantKey, yearFromCode } from './students/variants.js';
 import { matchSessions } from './flows/match.js';
-import { findOverlap, isIsoDate, isTime, formatTime } from '../public/admin/calendar.js';
+import { findOverlap, groupTimings, isIsoDate, isTime, formatTime } from '../public/admin/calendar.js';
+import { courseSubjects, dayChoiceOf } from '../public/admin/course-sheet.js';
+import { MENTOR, buildCourseSheet, readCourseSheet, sheetRows, slotsFor } from './batches/course-sheet.js';
 
 export const api = express.Router();
 api.use(express.json({ limit: '5mb' }));
@@ -669,6 +671,193 @@ api.post('/batches/timetable/import', (req, res) => {
     }
   });
   res.json({ batches: prepared.length, class_times: prepared.reduce((sum, e) => sum + e.parsed.length, 0) });
+});
+
+/* ---------- the course faculty sheet ---------- */
+
+function slotsOfBatch(batchId) {
+  const subs = db.prepare(`
+    SELECT s.faculty_id, f.code FROM batch_assignment_substitutes s JOIN faculties f ON f.id = s.faculty_id
+    WHERE s.assignment_id = ? ORDER BY s.position`);
+  return db.prepare(`
+    SELECT a.*, f.code AS faculty_code FROM batch_assignments a LEFT JOIN faculties f ON f.id = a.faculty_id
+    WHERE a.batch_id = ? ORDER BY a.position`).all(batchId)
+    .map((a) => {
+      const list = subs.all(a.id);
+      return { ...a, substitute_ids: list.map((s) => s.faculty_id), substitute_codes: list.map((s) => s.code) };
+    });
+}
+
+const flowSubjectsOf = (courseId) => courseSubjects(db.prepare('SELECT * FROM flows WHERE course_id = ?').all(courseId)
+  .map((f) => ({ sessions: db.prepare('SELECT subject FROM flow_sessions WHERE flow_id = ?').all(f.id) })));
+
+// Batches still running (or not yet started), in code order.
+const sheetBatchesOf = (courseId) => db.prepare("SELECT * FROM batches WHERE course_id = ? AND (end_date IS NULL OR end_date >= date('now'))")
+  .all(courseId).sort((a, b) => collator.compare(a.name, b.name));
+
+api.get('/courses/:id/faculty-sheet', (req, res) => {
+  const course = findOr404('courses', req.params.id, 'course');
+  const found = flowSubjectsOf(course.id);
+  if (!found.length) throw invalid(`Upload a master flow for ${course.name} first. Its subjects become the sheet’s columns.`);
+  const asked = req.query.subjects == null ? null : String(req.query.subjects).split(',').map((s) => s.trim()).filter(Boolean);
+  const subjects = asked
+    ? found.filter((s) => asked.some((a) => a.toLowerCase() === s.subject.toLowerCase())).map((s) => s.subject)
+    : found.filter((s) => !s.covered_by).map((s) => s.subject);
+
+  const facultyRows = db.prepare('SELECT * FROM faculties').all().sort((a, b) => collator.compare(a.code, b.code));
+  const detail = (table, column, id) => db.prepare(`SELECT ${column} AS v FROM ${table} WHERE faculty_id = ?`).all(id).map((r) => r.v);
+  const file = buildCourseSheet({
+    course,
+    subjects,
+    batches: sheetBatchesOf(course.id).map((b) => ({
+      name: b.name,
+      timings: db.prepare('SELECT weekday, start_time, end_time FROM batch_timings WHERE batch_id = ?').all(b.id),
+      slots: slotsOfBatch(b.id),
+    })),
+    faculties: facultyRows.map((f) => ({
+      code: f.code,
+      name: f.name,
+      subjects: detail('faculty_subjects', 'subject', f.id),
+      week_offs: detail('faculty_week_offs', 'day', f.id).sort((a, b) => DAYS.indexOf(a) - DAYS.indexOf(b)),
+    })),
+  });
+  const safeName = course.name.replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-') || 'course';
+  res.set({
+    'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'Content-Disposition': `attachment; filename="${safeName}-faculty-sheet.xlsx"`,
+  });
+  res.send(file);
+});
+
+const describeSlot = (primary, subs) => (primary || subs.length
+  ? `${primary || 'nobody'}${subs.length ? `, substitute ${subs.join(', ')}` : ''}`
+  : 'nobody');
+const describeHours = (timings) => (timings.length
+  ? groupTimings(timings).map((g) => `${dayChoiceOf(g.days)} ${g.start_time}–${g.end_time}`).join('; ')
+  : 'no class times');
+
+// Reads a filled course faculty sheet. Without apply it only reports what would change;
+// with apply it saves everything, or nothing if any row has a problem.
+api.post('/courses/:id/faculty-sheet', (req, res) => {
+  const course = findOr404('courses', req.params.id, 'course');
+  const encoded = String(req.body?.file ?? '');
+  if (!encoded) throw invalid('Choose the filled sheet to upload.');
+  let parsed;
+  try {
+    parsed = readCourseSheet(sheetRows(Buffer.from(encoded, 'base64'), String(req.body?.name ?? '')));
+  } catch (err) {
+    throw invalid(err.message);
+  }
+  const errors = [...parsed.problems];
+  const notes = [];
+  if (!parsed.batches.length && !errors.length) errors.push('The sheet has no batch rows.');
+
+  const batches = batchesByCode();
+  const facultyByCode = new Map(db.prepare('SELECT * FROM faculties').all().map((f) => [f.code.toLowerCase(), f]));
+  const teachesCourse = db.prepare('SELECT 1 FROM faculty_courses WHERE faculty_id = ? AND course_id = ?');
+  const subjectsOf = db.prepare('SELECT subject FROM faculty_subjects WHERE faculty_id = ?');
+  const flowSubjects = flowSubjectsOf(course.id).map((s) => s.subject.toLowerCase());
+  const courseName = (id) => db.prepare('SELECT name FROM courses WHERE id = ?').get(id)?.name ?? 'another course';
+
+  const plans = [];
+  for (const entry of parsed.batches) {
+    const batch = batches.get(normalizeCode(entry.code));
+    if (!batch) {
+      errors.push(`There is no batch "${entry.code}". Add it, or check the student sheet sync.`);
+      continue;
+    }
+    if (batch.course_id !== course.id) {
+      errors.push(`${batch.name} belongs to ${courseName(batch.course_id)}, not ${course.name}.`);
+      continue;
+    }
+    const plan = { batch, changes: [], timings: null, slots: [] };
+
+    if (entry.timings.length) {
+      try {
+        plan.timings = parseTimings(entry.timings, `${batch.name}: `);
+        const before = db.prepare('SELECT weekday, start_time, end_time FROM batch_timings WHERE batch_id = ?').all(batch.id);
+        const [was, now] = [describeHours(before), describeHours(plan.timings)];
+        if (was !== now) plan.changes.push(`Class times: ${now} (was ${was})`);
+      } catch (err) {
+        errors.push(err.message);
+      }
+    }
+
+    const slots = slotsOfBatch(batch.id);
+    const used = new Set();
+    for (const { subject, ranks } of parsed.subjects) {
+      const code = (rank) => entry.faculty.get(`${subject.toLowerCase()}|${rank}`) ?? '';
+      const lookup = (rank) => {
+        const value = code(rank);
+        if (!value) return null;
+        const f = facultyByCode.get(value.toLowerCase());
+        if (!f) errors.push(`${batch.name} ${subject}${ranks.length > 1 ? rank : ''}: there is no faculty with code "${value}".`);
+        return f ?? null;
+      };
+      const primary = lookup(1);
+      const sub = ranks.includes(2) ? lookup(2) : null;
+      if (primary && sub && primary.id === sub.id) errors.push(`${batch.name} ${subject}: ${primary.code} can’t be both primary and substitute.`);
+
+      const current = slotsFor(subject, slots);
+      current.forEach((s) => used.add(s.id));
+      const mentor = subject.toLowerCase() === MENTOR.toLowerCase();
+      // Rank 2 left out of the sheet (Mentor) keeps the slot's existing substitutes.
+      const keepSubs = !ranks.includes(2) ? (current[0]?.substitute_ids ?? []) : null;
+      const next = {
+        remove: current.map((s) => s.id),
+        position: current.length ? Math.min(...current.map((s) => s.position)) : null,
+        role: mentor ? (current[0]?.role ?? MENTOR) : subject,
+        subject: mentor ? (current[0]?.subject ?? null) : subject,
+        facultyId: primary?.id ?? null,
+        substituteIds: keepSubs ?? (sub ? [sub.id] : []),
+      };
+      plan.slots.push(next);
+
+      const was = current.length > 1
+        ? current.map((s) => `${s.role} ${describeSlot(s.faculty_code, s.substitute_codes)}`).join('; ')
+        : describeSlot(current[0]?.faculty_code, current[0]?.substitute_codes ?? []);
+      const nowSubs = keepSubs ? (current[0]?.substitute_codes ?? []) : sub ? [sub.code] : [];
+      const now = describeSlot(primary?.code, nowSubs);
+      if (current.length > 1 || was !== now || (current[0] && current[0].role.toLowerCase() !== next.role.toLowerCase())) {
+        plan.changes.push(`${next.role}: ${now} (was ${current.length ? was : 'no slot'})`);
+      }
+
+      for (const f of [primary, sub].filter(Boolean)) {
+        if (!teachesCourse.get(f.id, course.id)) notes.push(`${f.code} (${batch.name} ${subject}) isn’t listed for ${course.name}.`);
+        const listed = subjectsOf.all(f.id).map((r) => r.subject.toLowerCase());
+        if (!mentor && listed.length && !listed.includes(subject.toLowerCase())) notes.push(`${f.code} (${batch.name}) isn’t listed for ${subject}.`);
+      }
+    }
+    for (const s of slots) {
+      if (used.has(s.id) || s.role.toLowerCase() === MENTOR.toLowerCase()) continue;
+      if (s.subject && !flowSubjects.includes(s.subject.toLowerCase())) {
+        notes.push(`${batch.name} keeps its ${s.role} slot (${s.subject}), but no subject in ${course.name}’s master flow is called ${s.subject}, so the scheduler won’t use it.`);
+      }
+    }
+    plans.push(plan);
+  }
+
+  const summary = {
+    batches: plans.map((p) => ({ name: p.batch.name, changes: p.changes })),
+    changed: plans.filter((p) => p.changes.length).length,
+    notes: [...new Set(notes)],
+    errors,
+  };
+  if (!req.body?.apply) return res.json({ ...summary, applied: false });
+  if (errors.length) refuseAll(errors);
+
+  tx(() => {
+    const remove = db.prepare('DELETE FROM batch_assignments WHERE id = ?');
+    const nextPosition = db.prepare('SELECT COALESCE(MAX(position), -1) + 1 AS n FROM batch_assignments WHERE batch_id = ?');
+    for (const plan of plans) {
+      if (plan.timings) writeTimings(plan.batch.id, plan.timings);
+      for (const slot of plan.slots) {
+        slot.remove.forEach((id) => remove.run(id));
+        writeSlot(plan.batch.id, slot.position ?? nextPosition.get(plan.batch.id).n, slot);
+      }
+    }
+  });
+  res.json({ ...summary, applied: true });
 });
 
 // Sheet batches appear by themselves. This is for a batch being planned before its

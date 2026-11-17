@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildXlsx, columnName } from '../src/xlsx.js';
 import { weekWorkbook } from '../src/schedule/export.js';
-import { unzip } from './unzip.js';
+import { unzip } from '../src/unzip.js';
 
 const sheetNames = (files) => [...files['xl/workbook.xml'].matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
 const texts = (xml) => [...xml.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((m) => m[1]);

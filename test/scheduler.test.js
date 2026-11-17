@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { realFetch, signIn } from './sign-in.js';
-import { unzip } from './unzip.js';
+import { unzip } from '../src/unzip.js';
 import { chooseFaculty, chooseRoom, generateWeek, subjectMatches, weekStartOf } from '../src/schedule/generate.js';
 
 /* ---------- the rules ---------- */
