@@ -34,6 +34,8 @@ app.use('/api/auth', authRouter);
 app.use('/api', requireApi, api);
 
 app.get('/', (_req, res) => res.redirect('/admin/'));
+// Fonts, open to everyone because the sign-in page uses them too.
+app.use('/assets', express.static(path.join(root, 'public', 'assets'), { maxAge: '30d' }));
 app.use('/login', redirectIfSignedIn, express.static(path.join(root, 'public', 'login')));
 app.use('/admin', requirePage, express.static(path.join(root, 'public', 'admin')));
 

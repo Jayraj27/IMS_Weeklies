@@ -1,5 +1,7 @@
 /* Shared helpers: DOM building, server calls, dialogs and form controls. */
 
+import { currentSection, sectionTile } from './icons.js';
+
 export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 export const YEAR_NOW = new Date().getFullYear();
 
@@ -69,7 +71,8 @@ export const courseName = (id) => store.state.courses.find((c) => c.id === id)?.
 /* ---------- feedback ---------- */
 
 export function toast(message, isError = false) {
-  const el = h('div', { class: `toast${isError ? ' error' : ''}` }, message);
+  const el = h('div', { class: `toast${isError ? ' error' : ''}`, role: isError ? 'alert' : 'status' },
+    h('span', { class: 'toast-icon', 'aria-hidden': 'true' }, isError ? '!' : '✓'), h('span', null, message));
   const toasts = document.getElementById('toasts');
   toasts.append(el);
   while (toasts.children.length > 2) toasts.firstChild.remove();
@@ -150,7 +153,9 @@ export function pageHead(title, subtitle, ...actions) {
   return h(
     'header',
     { class: 'page-head' },
-    h('div', null, h('h1', null, title), subtitle && h('p', null, subtitle)),
+    h('div', { class: 'page-head-title' },
+      sectionTile(currentSection(), 'large'),
+      h('div', null, h('h1', null, title), subtitle && h('p', null, subtitle))),
     actions.length ? h('div', { class: 'row-actions' }, actions) : null,
   );
 }

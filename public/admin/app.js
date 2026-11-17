@@ -1,4 +1,5 @@
 import { h, store, guard, api, refresh, confirmDialog, formDialog, toast } from './lib.js';
+import { sectionTile } from './icons.js';
 import { overviewView } from './views/overview.js';
 import { facultiesView } from './views/faculties.js';
 import { coursesView } from './views/courses.js';
@@ -45,16 +46,20 @@ function viewFor({ parts, query }) {
 }
 
 function drawNav(section) {
-  document.getElementById('nav').replaceChildren(
+  const nav = document.getElementById('nav');
+  nav.replaceChildren(
     ...NAV.map((item) =>
       h(
         'a',
         { href: `#/${item.path}`, 'aria-current': (section ?? '') === item.path ? 'page' : null },
-        item.label,
+        sectionTile(item.path),
+        h('span', { class: 'nav-label' }, item.label),
         item.count && h('span', { class: 'nav-count' }, item.count(store.state)),
       ),
     ),
   );
+  // On a phone the menu is a sideways strip; keep the current page's item in view.
+  if (matchMedia('(max-width: 760px)').matches) nav.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
 store.render = () => {
@@ -124,6 +129,7 @@ async function signOut() {
 async function drawAccount() {
   const { username } = await api('GET', '/auth/me');
   document.getElementById('account').replaceChildren(
+    h('span', { class: 'avatar', 'aria-hidden': 'true' }, username.slice(0, 1).toUpperCase()),
     h('span', { class: 'account-name' }, username),
     h('button', { type: 'button', onclick: changePassword }, 'Change password'),
     h('button', { type: 'button', onclick: signOut }, 'Sign out'),

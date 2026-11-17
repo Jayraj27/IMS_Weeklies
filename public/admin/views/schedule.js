@@ -521,11 +521,12 @@ export function scheduleView(query) {
     })
     .catch((err) => listSlot.replaceChildren(h('p', { class: 'form-error', style: 'margin:0' }, err.message)));
 
-  const modeTabs = h('div', { class: 'tabs no-print', role: 'group', 'aria-label': 'View' },
-    [['grid', 'Day grid'], ['list', 'List'], ['faculty', 'By faculty']].map(([mode, label]) => h('button', {
-      class: 'tab', type: 'button', 'aria-pressed': String(view.mode === mode),
-      onclick: () => { view.mode = mode; store.render(); },
-    }, label)),
+  const modeTabs = h('div', { class: 'view-bar no-print' },
+    h('div', { class: 'tabs', role: 'group', 'aria-label': 'View' },
+      [['grid', 'Day grid'], ['list', 'List'], ['faculty', 'By faculty']].map(([mode, label]) => h('button', {
+        class: 'tab', type: 'button', 'aria-pressed': String(view.mode === mode),
+        onclick: () => { view.mode = mode; store.render(); },
+      }, label))),
     view.mode === 'grid'
       ? h('label', { class: 'colour-by' }, 'Colour by ',
           h('select', { 'aria-label': 'Colour blocks by', value: view.colour, onchange: (e) => { view.colour = e.target.value; store.render(); } },

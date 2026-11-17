@@ -141,6 +141,12 @@ leaks, delete that key in Google Cloud and create a new one.
   when a batch has followed the order exactly. Re-uploading a corrected flow keeps progress:
   rows are matched by code and topic, or by code alone when a topic has been corrected.
 
+## Look
+
+Colours and type follow IMS Learning Resources: IMS blue, amber and green, and IBM Plex
+Sans, served from `public/assets/fonts` under the SIL Open Font License (`OFL.txt` there).
+No outside fonts, images or scripts are loaded.
+
 ## Tests
 
 `npm test` runs the API tests against a temporary database.

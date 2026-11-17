@@ -3,16 +3,24 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Weeklies Admin</title>
-  <link rel="icon" href="data:,">
+  <meta name="theme-color" content="#0481FE">
+  <title>Weeklies · Admin</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230481FE'/%3E%3Cpath d='M7 10l3.5 12L16 12l5.5 10L25 10' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='25' cy='7' r='2.6' fill='%23FFAA00'/%3E%3C/svg%3E">
+  <link rel="preload" href="/assets/fonts/ibm-plex-sans.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="global-header">
+    <a class="brand" href="#/" aria-label="Weeklies admin, overview">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false"><rect width="32" height="32" rx="8" fill="#0481FE"/><path d="M7 10l3.5 12L16 12l5.5 10L25 10" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="25" cy="7" r="2.6" fill="#FFAA00"/></svg>
+      <span class="brand-text"><span class="brand-name">Weeklies</span><span class="brand-sub">Schedules, faculty &amp; master flows</span></span>
+    </a>
+    <div class="account" id="account"></div>
+  </header>
   <div class="shell">
     <nav class="sidebar" aria-label="Admin sections">
-      <a class="brand" href="#/">Weeklies <span>Admin</span></a>
       <div class="nav-links" id="nav"></div>
-      <div class="account" id="account"></div>
     </nav>
     <main id="main" tabindex="-1"></main>
   </div>
