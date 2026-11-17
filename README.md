@@ -127,6 +127,15 @@ leaks, delete that key in Google Cloud and create a new one.
   Topic and Subject are needed; Topic Code, Area and Homework link are optional. Tick the
   batches that follow it. Each batch follows one flow. A course-wide flow is also
   possible, covering every batch not mapped to its own flow.
+- **Reports > Faculty workload:** teaching hours per faculty for a week or month, split into
+  done and still planned, plus meeting hours, by course and by batch, from the weekly
+  schedule (so generate the weeks first; cancelled classes don't count). Classes without a
+  faculty are counted apart. Download spreadsheet gives the summary and every class.
+- **Reports > Batch forecast:** each batch's sessions finished in its master flow, per
+  subject, and the date its last session would be taught if every timetabled class from
+  today teaches one session. Compared with the batch's end date: weeks late and sessions
+  short, or classes to spare. Late batches come first. Also shows how many classes were
+  marked done on the schedule in the last four weeks against the timetable.
 - **Batch progress** records which sessions each batch has finished. Set the last finished
   session per subject, because subjects move at different speeds, or use "All up to No"
   when a batch has followed the order exactly. Re-uploading a corrected flow keeps progress:

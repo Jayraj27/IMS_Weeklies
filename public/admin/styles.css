@@ -571,3 +571,12 @@ code { font-family: var(--mono); font-size: .88em; background: #eeece5; padding:
   .toast { animation: rise .16s ease-out; }
   @keyframes rise { from { transform: translateY(6px); opacity: 0; } }
 }
+
+/* ---------- reports ---------- */
+
+.load-cell { min-width: 120px; }
+.load-bar { height: 6px; background: #eeece5; border-radius: 99px; overflow: hidden; margin: 4px 0; }
+.load-bar span { display: block; height: 100%; background: var(--accent); border-radius: 99px; }
+.load-cell .num-text { font-variant-numeric: tabular-nums; }
+.progress-cell { min-width: 220px; }
+.chip.warn-strong { background: var(--danger-soft); color: var(--danger); }
