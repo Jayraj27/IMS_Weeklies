@@ -79,8 +79,8 @@ describe('week export', () => {
     assert.match(week, /<colBreaks count="6"/, 'each day prints on its own pages');
   });
 
-  // Rows: 4 above the grid, then one row per quarter hour from 7:00 am in row 5,
-  // so 6:00 pm is row 49 and 11:00 am is row 21.
+  // Rows: 4 above the grid, then one row per half-hour slot from 7:00 am in row 5,
+  // so 6:00 pm is row 27 and 11:00 am is row 13.
   const grid = readXlsx(weekWorkbookFile)[0].rows;
   const at = (ref) => {
     const [, letters, digits] = /^([A-Z]+)(\d+)$/.exec(ref);
@@ -92,11 +92,11 @@ describe('week export', () => {
 
   test('each line of a class has its own cell, and a clash gets its own column', () => {
     assert.ok(merges(week).includes('B4:C4'), 'room heading spans both columns');
-    assert.deepEqual(column('B', 49, 56), ['CD', 'QA 1.5 Percentages', 'TEST01', '6:00 pm – 8:00 pm', '', '', '', '']);
-    assert.deepEqual(column('C', 53, 57), ['CD', 'QA 1.5 Percentages', 'TEST02', '7:00 pm – 9:00 pm', '⚠ Room 2 is also booked for TEST01.']);
-    assert.deepEqual(column('D', 21, 24), ['Faculty meeting', 'AB/CD', '11:00 am – 12:00 pm', '']);
-    assert.deepEqual(column('E', 14, 17), ['CD', 'QA 1.5 Percentages', 'TEST03', '9:15 am – 10:45 am'], '9:15 starts on the 9:15 row');
-    assert.deepEqual(column('J', 49, 53), ['CD', 'QA 1.5 Percentages', 'TEST04', '6:00 pm – 8:00 pm', '⚠ No room yet.'], 'Tuesday, no room');
+    assert.deepEqual(column('B', 27, 30), ['CD', 'QA 1.5 Percentages', 'TEST01', '6:00 pm – 8:00 pm']);
+    assert.deepEqual(column('C', 29, 32), ['CD', 'QA 1.5 Percentages', 'TEST02', '⚠ Room 2 is also booked for TEST01.'], 'short of rows: the slot labels show the time, so warnings keep their own row');
+    assert.deepEqual(column('D', 13, 14), ['Faculty meeting', 'AB/CD']);
+    assert.deepEqual(column('E', 9, 12), ['CD', 'QA 1.5 Percentages', 'TEST03', '9:15 am – 10:45 am'], '9:15 sits in the 9:00–9:30 slot');
+    assert.deepEqual(column('J', 27, 30), ['CD', 'QA 1.5 Percentages', 'TEST04', '⚠ No room yet.'], 'Tuesday, no room');
     assert.ok(!grid.flat().includes('TEST05'), 'cancelled classes are left off the grid');
     assert.ok(grid.flat().includes('Needs attention'));
   });
@@ -111,18 +111,20 @@ describe('week export', () => {
       const b = borders[xfs[s]];
       return ['left', 'right', 'top', 'bottom'].filter((side) => new RegExp(`<${side} style=`).test(b)).join(',');
     };
-    assert.equal(borderOf('B49'), 'left,right,top', 'first line: open at the bottom');
-    assert.equal(borderOf('B50'), 'left,right', 'middle lines: no line above or below');
-    assert.equal(borderOf('B56'), 'left,right,bottom', 'last row closes the block');
-    assert.equal(at('A5'), '7:00 am');
-    assert.equal(at('A6'), '', 'times every half hour');
-    assert.ok(merges(week).includes('A5:A6'));
+    assert.equal(borderOf('B27'), 'left,right,top', 'first line: open at the bottom');
+    assert.equal(borderOf('B28'), 'left,right', 'middle lines: no line above or below');
+    assert.equal(borderOf('B30'), 'left,right,bottom', 'last row closes the block');
+    assert.deepEqual(column('A', 5, 7), ['7:00–7:30 am', '7:30–8:00 am', '8:00–8:30 am'], 'one row per slot');
+    assert.equal(at('A14'), '11:30 am–12:00 pm', 'a slot crossing noon shows both halves');
   });
 
   test('a short class keeps every line: the last row holds the rest', () => {
     const short = readXlsx(weekWorkbook({ weekStart: '2026-11-16', rooms, faculties, events: [], classes: [cls({ start_time: '18:00', end_time: '18:30', warnings: ['Clash.'] })] }))[0].rows;
     const row = (n) => short[n - 1][1];
-    assert.deepEqual([row(49), row(50)], ['CD', 'QA 1.5 Percentages · TEST01 · 6:00 pm – 6:30 pm · ⚠ Clash.']);
+    assert.equal(row(27), 'CD · QA 1.5 Percentages · TEST01 · ⚠ Clash.');
+    const offSlot = readXlsx(weekWorkbook({ weekStart: '2026-11-16', rooms, faculties, events: [], classes: [cls({ start_time: '18:10', end_time: '18:40' })] }))[0].rows;
+    assert.equal(offSlot[26][1], 'CD', 'starts at 6:10, so it covers two slots');
+    assert.equal(offSlot[27][1], 'QA 1.5 Percentages · TEST01 · 6:10 pm – 6:40 pm', 'off the slot lines, its exact time stays');
   });
 
   test('the list tab has every class, cancelled ones and blocks included', () => {

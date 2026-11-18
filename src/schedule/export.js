@@ -10,12 +10,18 @@ import { EVENT_COLOURS, colourFor } from '../../public/admin/colours.js';
 import { buildXlsx, cellRef } from '../xlsx.js';
 
 const DAY_NAMES = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
-// Quarter-hour rows, so each line of a class (faculty, topic, batch, time) gets its own cell.
-const ROW_MINUTES = 15;
-const LABEL_MINUTES = 30; // times are labelled every half hour
+// One row per half-hour slot, labelled "8:00–8:30 am". Each line of a class (faculty,
+// topic, batch, time) takes a row of its own.
+const ROW_MINUTES = 30;
 const FIRST = 4; // rows above the grid: title, day names, week-offs, room names
 const toMinutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 const toTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+/** "8:00–8:30 am", or "11:30 am–12:00 pm" when the slot crosses noon. */
+function slotLabel(from, to) {
+  const [a, b] = [formatTime(toTime(from)), formatTime(toTime(to % (24 * 60)))];
+  const [aTime, aHalf] = a.split(' ');
+  return aHalf === b.split(' ')[1] ? `${aTime}–${b}` : `${a}–${b}`;
+}
 const span = (item) => `${formatTime(item.start_time)} – ${formatTime(item.end_time)}`;
 const shortDate = (iso) => formatDate(iso).replace(/ \d{4}$/, '');
 
@@ -24,10 +30,9 @@ const S = {
   day: { bold: true, size: 12, fill: '#D6D3C9', border: true, borderColor: '#8A8A80', h: 'center', v: 'center' },
   off: { color: '#555555', fill: '#F4F3EF', border: true, borderColor: '#D9D9D9', h: 'center', wrap: true },
   head: { bold: true, fill: '#E7E6E1', border: true, h: 'center', v: 'center', wrap: true },
-  time: { color: '#555555', border: true, borderColor: '#D9D9D9', sides: 'rb', v: 'top', h: 'right' },
-  // Empty grid cells: faint lines between rooms, and across only at each half hour.
-  empty: { border: true, borderColor: '#E3E3E3', sides: 'lr' },
-  emptyHalf: { border: true, borderColor: '#E3E3E3', sides: 'lrb' },
+  time: { color: '#555555', border: true, borderColor: '#D9D9D9', sides: 'rb', v: 'center', h: 'right' },
+  // Empty grid cells: faint lines between rooms and between slots.
+  empty: { border: true, borderColor: '#E3E3E3', sides: 'lrb' },
   divider: { fill: '#5D6474' },
   warn: { bold: true, color: '#B91C1C' },
   listHead: { bold: true, fill: '#E7E6E1', border: true },
@@ -113,18 +118,15 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
   const rows = Array.from({ length: FIRST + slots }, () => Array(width).fill(null));
   const merges = [];
   const merge = (r1, c1, r2, c2) => { if (r1 !== r2 || c1 !== c2) merges.push(`${cellRef(r1, c1)}:${cellRef(r2, c2)}`); };
-  const colWidths = [10];
+  const colWidths = [17];
   const breaks = [];
 
   rows[0][0] = { v: `Schedule, week of ${formatDate(weekStart)} – ${formatDate(addDays(weekStart, 6))}`, s: S.title };
   merge(0, 0, 0, Math.min(width - 1, 8));
   rows[FIRST - 1][0] = { v: 'Time', s: S.head };
-  const isHalfEnd = (r) => (start + (r + 1) * ROW_MINUTES) % LABEL_MINUTES === 0;
   for (let r = 0; r < slots; r++) {
-    const minute = start + r * ROW_MINUTES;
-    const labelled = minute % LABEL_MINUTES === 0;
-    rows[FIRST + r][0] = { v: labelled ? formatTime(toTime(minute)) : null, s: S.time };
-    if (labelled && r + 1 < slots) merge(FIRST + r, 0, FIRST + r + 1, 0);
+    const from = start + r * ROW_MINUTES;
+    rows[FIRST + r][0] = { v: slotLabel(from, from + ROW_MINUTES), s: S.time };
   }
 
   let col = 1;
@@ -146,7 +148,7 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
         rows[1][c] = { v: null, s: S.day };
         rows[2][c] = { v: null, s: S.off };
       }
-      for (let r = 0; r < slots; r++) rows[FIRST + r][c] = { v: null, s: isHalfEnd(r) ? S.emptyHalf : S.empty };
+      for (let r = 0; r < slots; r++) rows[FIRST + r][c] = { v: null, s: S.empty };
       colWidths.push(26);
     }
     merge(1, first, 1, last);
@@ -161,10 +163,18 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
         const warned = x.warnings.length > 0;
         const c = col + p.lane;
         const height = p.bottom - p.top + 1;
-        const lines = blockLines(x, faculties);
+        let lines = blockLines(x, faculties);
+        // Short of rows, and the class runs exactly on the slots: the row labels already
+        // show its time, so that line goes first to leave room for warnings.
+        const onSlots = (toMinutes(x.start_time) - start) % ROW_MINUTES === 0 && (toMinutes(x.end_time) - start) % ROW_MINUTES === 0;
+        if (lines.length > height && onSlots) lines = lines.filter((l) => l.kind !== 'time');
         // More lines than rows (a short class): the last row holds the rest.
         const cells = lines.length > height
-          ? [...lines.slice(0, height - 1), { text: lines.slice(height - 1).map((l) => l.text).join(' · '), kind: lines[height - 1].kind }]
+          ? [...lines.slice(0, height - 1), {
+              text: lines.slice(height - 1).map((l) => l.text).join(' · '),
+              // A warning in the shared row makes it red.
+              kind: lines.slice(height - 1).some((l) => l.kind === 'warn') ? 'warn' : lines[height - 1].kind,
+            }]
           : lines;
         for (let r = 0; r < height; r++) {
           // One outline round the whole block, no lines between its cells.
@@ -197,7 +207,7 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
     rows,
     merges,
     cols: colWidths,
-    rowHeights: [22, 20, 16, 30, ...Array(slots).fill(16)],
+    rowHeights: [22, 20, 16, 30, ...Array(slots).fill(20)],
     freeze: { row: FIRST, col: 1 },
     repeatRows: FIRST,
     repeatCols: 1,
