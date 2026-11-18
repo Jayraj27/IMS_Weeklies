@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildXlsx, columnName } from '../src/xlsx.js';
 import { weekWorkbook } from '../src/schedule/export.js';
 import { unzip } from '../src/unzip.js';
+import { readXlsx } from '../src/xlsx-read.js';
 
 const sheetNames = (files) => [...files['xl/workbook.xml'].matchAll(/<sheet name="([^"]+)"/g)].map((m) => m[1]);
 const texts = (xml) => [...xml.matchAll(/<t xml:space="preserve">([^<]*)<\/t>/g)].map((m) => m[1]);
@@ -55,7 +56,8 @@ describe('week export', () => {
     cls({ id: 5, batch_name: 'TEST05', status: 'cancelled', room_id: 1, room_name: 'Room 10' }),
   ];
   const events = [{ id: 1, title: 'Faculty meeting', date: '2026-11-16', start_time: '11:00', end_time: '12:00', room_id: 1, room_name: 'Room 10', online: false, faculty_ids: [1, 2], warnings: [] }];
-  const files = unzip(weekWorkbook({ weekStart: '2026-11-16', classes, events, rooms, faculties }));
+  const weekWorkbookFile = weekWorkbook({ weekStart: '2026-11-16', classes, events, rooms, faculties });
+  const files = unzip(weekWorkbookFile);
   const week = files['xl/worksheets/sheet1.xml'];
 
   test('the whole week is one tab, then the list of every class', () => {
@@ -77,21 +79,50 @@ describe('week export', () => {
     assert.match(week, /<colBreaks count="6"/, 'each day prints on its own pages');
   });
 
-  test('each class is one block covering its half-hours, and a clash gets its own column', () => {
-    // Rows: 4 above the grid, then 7:00 am in row 5, so 6:00 pm is row 27.
-    const m = merges(week);
-    assert.ok(m.includes('B4:C4'), 'room heading spans both columns');
-    assert.ok(m.includes('B27:B30'), '6 to 8 pm');
-    assert.ok(m.includes('C29:C32'), '7 to 9 pm, beside it');
-    assert.ok(m.includes('D13:D14'), 'the meeting, 11 to 12');
-    assert.ok(m.includes('E9:E12'), '9:15 to 10:45 covers the 9:00 to 10:30 rows');
-    assert.ok(m.includes('J27:J30'), 'Tuesday’s class without a room');
-    const t = texts(week);
-    assert.ok(t.includes('CD\nQA 1.5 Percentages\nTEST01\n6:00 pm – 8:00 pm'));
-    assert.ok(t.some((x) => x.startsWith('CD\nQA 1.5 Percentages\nTEST02') && x.includes('⚠ Room 2 is also booked')));
-    assert.ok(t.includes('Faculty meeting\nAB/CD\n11:00 am – 12:00 pm'));
-    assert.ok(!t.some((x) => x.includes('TEST05')), 'cancelled classes are left off the grid');
-    assert.ok(t.includes('Needs attention'));
+  // Rows: 4 above the grid, then one row per quarter hour from 7:00 am in row 5,
+  // so 6:00 pm is row 49 and 11:00 am is row 21.
+  const grid = readXlsx(weekWorkbookFile)[0].rows;
+  const at = (ref) => {
+    const [, letters, digits] = /^([A-Z]+)(\d+)$/.exec(ref);
+    let c = 0;
+    for (const ch of letters) c = c * 26 + ch.charCodeAt(0) - 64;
+    return grid[Number(digits) - 1]?.[c - 1] ?? '';
+  };
+  const column = (letter, from, to) => Array.from({ length: to - from + 1 }, (_, i) => at(`${letter}${from + i}`));
+
+  test('each line of a class has its own cell, and a clash gets its own column', () => {
+    assert.ok(merges(week).includes('B4:C4'), 'room heading spans both columns');
+    assert.deepEqual(column('B', 49, 56), ['CD', 'QA 1.5 Percentages', 'TEST01', '6:00 pm – 8:00 pm', '', '', '', '']);
+    assert.deepEqual(column('C', 53, 57), ['CD', 'QA 1.5 Percentages', 'TEST02', '7:00 pm – 9:00 pm', '⚠ Room 2 is also booked for TEST01.']);
+    assert.deepEqual(column('D', 21, 24), ['Faculty meeting', 'AB/CD', '11:00 am – 12:00 pm', '']);
+    assert.deepEqual(column('E', 14, 17), ['CD', 'QA 1.5 Percentages', 'TEST03', '9:15 am – 10:45 am'], '9:15 starts on the 9:15 row');
+    assert.deepEqual(column('J', 49, 53), ['CD', 'QA 1.5 Percentages', 'TEST04', '6:00 pm – 8:00 pm', '⚠ No room yet.'], 'Tuesday, no room');
+    assert.ok(!grid.flat().includes('TEST05'), 'cancelled classes are left off the grid');
+    assert.ok(grid.flat().includes('Needs attention'));
+  });
+
+  test('blocks are not merged, and have one outline with no lines inside', () => {
+    assert.ok(!merges(week).some((m) => /^[B-Z]\d+:[B-Z]\d+$/.test(m) && Number(m.split(':')[0].slice(1)) > 4), 'no merged cells inside the grid');
+    const styles = files['xl/styles.xml'];
+    const xfs = [...styles.matchAll(/<xf numFmtId[^>]*?borderId="(\d+)"/g)].map((m) => Number(m[1])).slice(1);
+    const borders = [...styles.match(/<borders[^>]*>([\s\S]*?)<\/borders>/)[1].matchAll(/<border>([\s\S]*?)<\/border>/g)].map((m) => m[1]);
+    const borderOf = (ref) => {
+      const s = Number(new RegExp(`<c r="${ref}" s="(\\d+)"`).exec(week)[1]);
+      const b = borders[xfs[s]];
+      return ['left', 'right', 'top', 'bottom'].filter((side) => new RegExp(`<${side} style=`).test(b)).join(',');
+    };
+    assert.equal(borderOf('B49'), 'left,right,top', 'first line: open at the bottom');
+    assert.equal(borderOf('B50'), 'left,right', 'middle lines: no line above or below');
+    assert.equal(borderOf('B56'), 'left,right,bottom', 'last row closes the block');
+    assert.equal(at('A5'), '7:00 am');
+    assert.equal(at('A6'), '', 'times every half hour');
+    assert.ok(merges(week).includes('A5:A6'));
+  });
+
+  test('a short class keeps every line: the last row holds the rest', () => {
+    const short = readXlsx(weekWorkbook({ weekStart: '2026-11-16', rooms, faculties, events: [], classes: [cls({ start_time: '18:00', end_time: '18:30', warnings: ['Clash.'] })] }))[0].rows;
+    const row = (n) => short[n - 1][1];
+    assert.deepEqual([row(49), row(50)], ['CD', 'QA 1.5 Percentages · TEST01 · 6:00 pm – 6:30 pm · ⚠ Clash.']);
   });
 
   test('the list tab has every class, cancelled ones and blocks included', () => {

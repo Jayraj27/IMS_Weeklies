@@ -107,7 +107,9 @@ leaks, delete that key in Google Cloud and create a new one.
   clashes, week-offs and rooms that are too small are flagged on the block. Marking a class
   done records its session in Batch progress. Download spreadsheet saves the whole week as
   one .xlsx file. The first tab holds the whole week, days side by side with a divider
-  column between them, each day laid out like the day grid. An "All classes" tab has a row
+  column between them, each day laid out like the day grid: quarter-hour rows, and each
+  class as one outlined block with faculty, topic, batch and time in cells of their own.
+  An "All classes" tab has a row
   per class that can be sorted and filtered. Subjects must be named the same in the flow
   and the slots: QA matches QA, but VA doesn't match VARC.
 - **Students' courses** come from the sheet's Current Variant. Each variant is ticked into

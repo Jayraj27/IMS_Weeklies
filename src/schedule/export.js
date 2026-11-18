@@ -10,7 +10,9 @@ import { EVENT_COLOURS, colourFor } from '../../public/admin/colours.js';
 import { buildXlsx, cellRef } from '../xlsx.js';
 
 const DAY_NAMES = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
-const ROW_MINUTES = 30;
+// Quarter-hour rows, so each line of a class (faculty, topic, batch, time) gets its own cell.
+const ROW_MINUTES = 15;
+const LABEL_MINUTES = 30; // times are labelled every half hour
 const FIRST = 4; // rows above the grid: title, day names, week-offs, room names
 const toMinutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
 const toTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -22,8 +24,10 @@ const S = {
   day: { bold: true, size: 12, fill: '#D6D3C9', border: true, borderColor: '#8A8A80', h: 'center', v: 'center' },
   off: { color: '#555555', fill: '#F4F3EF', border: true, borderColor: '#D9D9D9', h: 'center', wrap: true },
   head: { bold: true, fill: '#E7E6E1', border: true, h: 'center', v: 'center', wrap: true },
-  time: { color: '#555555', border: true, borderColor: '#D9D9D9', v: 'top', h: 'right' },
-  empty: { border: true, borderColor: '#E3E3E3' },
+  time: { color: '#555555', border: true, borderColor: '#D9D9D9', sides: 'rb', v: 'top', h: 'right' },
+  // Empty grid cells: faint lines between rooms, and across only at each half hour.
+  empty: { border: true, borderColor: '#E3E3E3', sides: 'lr' },
+  emptyHalf: { border: true, borderColor: '#E3E3E3', sides: 'lrb' },
   divider: { fill: '#5D6474' },
   warn: { bold: true, color: '#B91C1C' },
   listHead: { bold: true, fill: '#E7E6E1', border: true },
@@ -33,18 +37,22 @@ const S = {
 
 const columnKeyOf = (item) => (item.online ? 'online' : item.room_id ? `room:${item.room_id}` : 'none');
 
-function blockText(item, faculties) {
+/** The lines of a block, each for its own cell: { text, kind }, kind deciding the style. */
+function blockLines(item, faculties) {
   const lines = item.kind === 'event'
-    ? [item.title, item.faculty_ids.map((id) => faculties.get(id)?.code).filter(Boolean).join('/')]
+    ? [
+        { text: item.title, kind: 'lead' },
+        { text: item.faculty_ids.map((id) => faculties.get(id)?.code).filter(Boolean).join('/'), kind: 'plain' },
+      ]
     : [
-        item.faculty_code ?? 'No faculty',
-        item.session_id ? `${item.topic_code || item.subject} ${item.topic}` : 'No session',
-        item.batch_name,
+        { text: item.faculty_code ?? 'No faculty', kind: 'lead' },
+        { text: item.session_id ? `${item.topic_code || item.subject} ${item.topic}` : 'No session', kind: 'plain' },
+        { text: item.batch_name, kind: 'batch' },
       ];
-  lines.push(span(item));
-  if (item.status === 'done') lines.push('✓ Done');
-  for (const w of item.warnings) lines.push(`⚠ ${w}`);
-  return lines.filter(Boolean).join('\n');
+  lines.push({ text: span(item), kind: 'time' });
+  if (item.status === 'done') lines.push({ text: '✓ Done', kind: 'done' });
+  for (const w of item.warnings) lines.push({ text: `⚠ ${w}`, kind: 'warn' });
+  return lines.filter((l) => l.text);
 }
 
 /**
@@ -111,7 +119,13 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
   rows[0][0] = { v: `Schedule, week of ${formatDate(weekStart)} – ${formatDate(addDays(weekStart, 6))}`, s: S.title };
   merge(0, 0, 0, Math.min(width - 1, 8));
   rows[FIRST - 1][0] = { v: 'Time', s: S.head };
-  for (let r = 0; r < slots; r++) rows[FIRST + r][0] = { v: formatTime(toTime(start + r * ROW_MINUTES)), s: S.time };
+  const isHalfEnd = (r) => (start + (r + 1) * ROW_MINUTES) % LABEL_MINUTES === 0;
+  for (let r = 0; r < slots; r++) {
+    const minute = start + r * ROW_MINUTES;
+    const labelled = minute % LABEL_MINUTES === 0;
+    rows[FIRST + r][0] = { v: labelled ? formatTime(toTime(minute)) : null, s: S.time };
+    if (labelled && r + 1 < slots) merge(FIRST + r, 0, FIRST + r + 1, 0);
+  }
 
   let col = 1;
   days.forEach((day, i) => {
@@ -132,8 +146,8 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
         rows[1][c] = { v: null, s: S.day };
         rows[2][c] = { v: null, s: S.off };
       }
-      for (let r = 0; r < slots; r++) rows[FIRST + r][c] = { v: null, s: S.empty };
-      colWidths.push(22);
+      for (let r = 0; r < slots; r++) rows[FIRST + r][c] = { v: null, s: isHalfEnd(r) ? S.emptyHalf : S.empty };
+      colWidths.push(26);
     }
     merge(1, first, 1, last);
     merge(2, first, 2, last);
@@ -145,15 +159,25 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
         const x = p.item;
         const [fill, edge] = x.kind === 'event' ? EVENT_COLOURS : colourFor(colourBy === 'batch' ? x.batch_name : x.faculty_code);
         const warned = x.warnings.length > 0;
-        const style = {
-          fill, wrap: true, v: 'top', border: true,
-          borderColor: warned ? '#DC2626' : edge, borderWeight: warned ? 'medium' : 'thin',
-          color: warned ? '#7F1D1D' : '#1F2937',
-        };
         const c = col + p.lane;
-        for (let r = p.top; r <= p.bottom; r++) rows[FIRST + r][c] = { v: null, s: style };
-        rows[FIRST + p.top][c] = { v: blockText(x, faculties), s: style };
-        merge(FIRST + p.top, c, FIRST + p.bottom, c);
+        const height = p.bottom - p.top + 1;
+        const lines = blockLines(x, faculties);
+        // More lines than rows (a short class): the last row holds the rest.
+        const cells = lines.length > height
+          ? [...lines.slice(0, height - 1), { text: lines.slice(height - 1).map((l) => l.text).join(' · '), kind: lines[height - 1].kind }]
+          : lines;
+        for (let r = 0; r < height; r++) {
+          // One outline round the whole block, no lines between its cells.
+          const sides = `lr${r === 0 ? 't' : ''}${r === height - 1 ? 'b' : ''}`;
+          const kind = cells[r]?.kind;
+          const style = {
+            fill, border: true, sides, borderColor: warned ? '#DC2626' : edge, borderWeight: warned ? 'medium' : 'thin',
+            v: 'center', h: 'left', indent: 1, shrink: true,
+            bold: kind === 'lead' || kind === 'batch',
+            color: kind === 'warn' ? '#B91C1C' : kind === 'time' ? '#4B5563' : kind === 'done' ? '#15803D' : '#1F2937',
+          };
+          rows[FIRST + p.top + r][c] = { v: cells[r]?.text ?? null, s: style };
+        }
       }
       col += column.lanes;
     }
@@ -173,7 +197,7 @@ function weekSheet(weekStart, { classes, events, rooms, faculties, colourBy }) {
     rows,
     merges,
     cols: colWidths,
-    rowHeights: [22, 20, 16, 30, ...Array(slots).fill(30)],
+    rowHeights: [22, 20, 16, 30, ...Array(slots).fill(16)],
     freeze: { row: FIRST, col: 1 },
     repeatRows: FIRST,
     repeatCols: 1,

@@ -46,12 +46,13 @@ function styleBook() {
     const fill = style.fill
       ? `<fill><patternFill patternType="solid"><fgColor rgb="${argb(style.fill)}"/><bgColor indexed="64"/></patternFill></fill>`
       : fills[0];
-    const side = (name) => (style.border
+    // style.sides limits the border to some sides: 'lrtb' letters, e.g. 'lr' for left and right.
+    const side = (name) => (style.border && (!style.sides || style.sides.includes(name[0]))
       ? `<${name} style="${style.borderWeight ?? 'thin'}"><color rgb="${argb(style.borderColor ?? '#BFBFBF')}"/></${name}>`
       : `<${name}/>`);
     const border = `<border>${side('left')}${side('right')}${side('top')}${side('bottom')}<diagonal/></border>`;
-    const align = style.wrap || style.h || style.v
-      ? `<alignment${style.h ? ` horizontal="${style.h}"` : ''}${style.v ? ` vertical="${style.v}"` : ''}${style.wrap ? ' wrapText="1"' : ''}/>`
+    const align = style.wrap || style.h || style.v || style.shrink || style.indent
+      ? `<alignment${style.h ? ` horizontal="${style.h}"` : ''}${style.v ? ` vertical="${style.v}"` : ''}${style.wrap ? ' wrapText="1"' : ''}${style.shrink ? ' shrinkToFit="1"' : ''}${style.indent ? ` indent="${style.indent}"` : ''}/>`
       : '';
     // style.text: the cell keeps what is typed, so Excel doesn't turn 18:00 into a time.
     const xf = `<xf numFmtId="${style.text ? 49 : 0}" fontId="${indexOf(fonts, font)}" fillId="${indexOf(fills, fill)}" borderId="${indexOf(borders, border)}" xfId="0" applyFont="1" applyFill="1" applyBorder="1"${style.text ? ' applyNumberFormat="1"' : ''}${align ? ' applyAlignment="1">' + align + '</xf>' : '/>'}`;
