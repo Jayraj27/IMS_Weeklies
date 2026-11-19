@@ -1,10 +1,12 @@
 /*
  * Plans a week of classes. No database here, so the rules can be tested directly.
  *
- * Each batch's classes that week get the next unfinished sessions of its master flow,
- * in flow order. Each session goes to the faculty in the batch slot for its subject,
- * then that slot's substitutes in order, skipping anyone on their week-off or already
- * teaching another batch at that time. Anything it can't settle is flagged, not guessed.
+ * Each batch's classes that week get the next unfinished sessions of its master flow.
+ * Each subject keeps its own flow order. A class takes the subject due next, going to the
+ * faculty in the batch slot for that subject, then that slot's substitutes in order,
+ * skipping anyone on their week-off or already teaching another batch at that time. If
+ * none of them is free, the class switches to another subject whose faculty is free.
+ * Anything it can't settle is flagged, not guessed.
  */
 
 import { WEEK, addDays, classesBetween, weekdayOf } from '../../public/admin/calendar.js';
@@ -65,7 +67,7 @@ export function chooseFaculty({ subject, slots, date, start_time, end_time, facu
     }
     return { faculty_id: id, flags: reasons.length ? [`Covered by ${f.code}: ${reasons.join('; ')}.`] : [] };
   }
-  return { faculty_id: null, flags: [`Nobody free: ${reasons.join('; ')}.`] };
+  return { faculty_id: null, busy: true, flags: [`Nobody free: ${reasons.join('; ')}.`] };
 }
 
 /**
@@ -115,8 +117,8 @@ export function generateWeek({ weekStart, batches, faculties, bookings, rooms = 
 
   return classes.map((c) => {
     const { batch } = c;
-    const session = queues.get(batch.id).shift() ?? null;
-    const planned = { batch_id: batch.id, date: c.date, start_time: c.start_time, end_time: c.end_time, session_id: session?.id ?? null, faculty_id: null, room_id: null, online: batch.online ? 1 : 0, flags: [] };
+    const queue = queues.get(batch.id);
+    const planned = { batch_id: batch.id, date: c.date, start_time: c.start_time, end_time: c.end_time, session_id: null, faculty_id: null, room_id: null, online: batch.online ? 1 : 0, flags: [] };
     if (!batch.online) {
       planned.room_id = chooseRoom({ size: batch.size ?? 0, rooms, bookings: roomsTaken, date: c.date, start_time: c.start_time, end_time: c.end_time, preferred: usualRoom.get(batch.id) });
       if (planned.room_id) {
@@ -124,14 +126,51 @@ export function generateWeek({ weekStart, batches, faculties, bookings, rooms = 
         usualRoom.set(batch.id, planned.room_id);
       }
     }
-    if (!session) {
+    if (!queue.length) {
       planned.flags.push('No sessions left in this batch’s master flow.');
       return planned;
     }
-    const pick = chooseFaculty({ subject: session.subject, slots: batch.slots, date: c.date, start_time: c.start_time, end_time: c.end_time, faculties: facultyById, bookings: booked });
+    const time = { slots: batch.slots, date: c.date, start_time: c.start_time, end_time: c.end_time, faculties: facultyById, bookings: booked };
+    const { session, pick, switched } = pickSession(queue, (subject) => chooseFaculty({ subject, ...time }));
+    queue.splice(queue.indexOf(session), 1);
+    planned.session_id = session.id;
     planned.faculty_id = pick.faculty_id;
-    planned.flags = pick.flags;
+    planned.flags = switched ? [switched, ...pick.flags] : pick.flags;
     if (pick.faculty_id) booked.push({ faculty_id: pick.faculty_id, date: c.date, start_time: c.start_time, end_time: c.end_time, batch_name: batch.name });
     return planned;
   });
+}
+
+const subjectKey = (session) => String(session.subject ?? '').trim().toLowerCase();
+
+/**
+ * Faculty availability decides the order between subjects, so each subject is its own
+ * queue, still in flow order. A class takes the subject due next (the earliest unfinished
+ * session) if one of that subject's faculty is free: the primary, then the substitutes in
+ * order. If all of them are off or busy, the class switches to the next subject in the flow
+ * whose faculty is free and takes that subject's next session; the skipped session stays
+ * first in its own queue for a later class. A subject with no slot or nobody assigned is
+ * not switched away from, since no later class would fix that: it is flagged to be set up.
+ * If no subject has anyone free, the class keeps the session due next, flagged.
+ * choose(subject) returns { faculty_id, busy, flags }, as chooseFaculty does.
+ */
+export function pickSession(queue, choose) {
+  const firsts = [];
+  const seen = new Set();
+  for (const session of queue) {
+    const key = subjectKey(session);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    firsts.push(session);
+  }
+  const due = firsts[0];
+  const duePick = choose(due.subject);
+  if (duePick.faculty_id || !duePick.busy) return { session: due, pick: duePick, switched: null };
+  for (const session of firsts.slice(1)) {
+    const pick = choose(session.subject);
+    if (!pick.faculty_id) continue;
+    const why = duePick.flags.join(' ').replace(/\.$/, '');
+    return { session, pick, switched: `Switched from ${due.subject} to ${session.subject}. ${why}.` };
+  }
+  return { session: due, pick: duePick, switched: null };
 }

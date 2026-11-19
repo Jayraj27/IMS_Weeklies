@@ -82,6 +82,62 @@ describe('scheduling rules', () => {
     assert.notEqual(sundayOne[0].faculty_id, sundayOne[1].faculty_id);
   });
 
+  describe('when a subject’s faculty can’t come', () => {
+    const team = [...faculties.values(), { id: 4, code: 'VK', week_offs: ['Mon'] }];
+    const teamSlots = [
+      { role: 'QA', subject: 'QA', faculty_id: 1, substitute_ids: [2, 3] },
+      { role: 'VA', subject: 'VA', faculty_id: 4, substitute_ids: [] },
+      { role: 'MISC', subject: 'MISC', faculty_id: null, substitute_ids: [] },
+    ];
+    const mondayAndSunday = [{ weekday: 'Mon', start_time: '18:00', end_time: '20:00' }, { weekday: 'Sun', start_time: '13:00', end_time: '15:00' }];
+    const plan = (sessions, bookings = []) => generateWeek({
+      weekStart: '2026-11-16',
+      batches: [batch({ slots: teamSlots, timings: mondayAndSunday, sessions })],
+      faculties: team,
+      bookings,
+    });
+
+    test('the class switches subject, and the skipped session waits for the next class its faculty can take', () => {
+      const [monday, sunday] = plan([{ id: 20, subject: 'VA' }, { id: 21, subject: 'VA' }, { id: 22, subject: 'QA' }, { id: 23, subject: 'QA' }]);
+      assert.equal(monday.session_id, 22);
+      assert.equal(monday.faculty_id, 1);
+      assert.match(monday.flags[0], /Switched from VA to QA\. Nobody free: VK has Mon off\./);
+      assert.equal(sunday.session_id, 20, 'VA picks up where it left off');
+      assert.equal(sunday.faculty_id, 4);
+      assert.deepEqual(sunday.flags, []);
+    });
+
+    test('every faculty of the subject is tried before switching', () => {
+      const busy = [1, 2].map((id) => ({ faculty_id: id, date: '2026-11-16', start_time: '18:00', end_time: '20:00', batch_name: 'X' }));
+      const [monday] = plan([{ id: 22, subject: 'QA' }, { id: 20, subject: 'VA' }], busy);
+      assert.equal(monday.session_id, 22);
+      assert.equal(monday.faculty_id, 3, 'the second substitute takes it');
+      assert.match(monday.flags[0], /Covered by AM/);
+    });
+
+    test('a substitute in the subject switched to is still reported', () => {
+      const busy = [{ faculty_id: 1, date: '2026-11-16', start_time: '18:00', end_time: '20:00', batch_name: 'X' }];
+      const [monday] = plan([{ id: 20, subject: 'VA' }, { id: 22, subject: 'QA' }], busy);
+      assert.equal(monday.faculty_id, 2);
+      assert.match(monday.flags[0], /Switched from VA to QA/);
+      assert.match(monday.flags[1], /Covered by PD: RS is teaching X then/);
+    });
+
+    test('with nobody free in any subject, the session due next stays, flagged', () => {
+      const busy = [1, 2, 3].map((id) => ({ faculty_id: id, date: '2026-11-16', start_time: '18:00', end_time: '20:00', batch_name: 'X' }));
+      const [monday] = plan([{ id: 20, subject: 'VA' }, { id: 22, subject: 'QA' }], busy);
+      assert.equal(monday.session_id, 20);
+      assert.equal(monday.faculty_id, null);
+      assert.match(monday.flags[0], /Nobody free: VK has Mon off/);
+    });
+
+    test('a subject nobody is assigned to is flagged, not skipped for ever', () => {
+      const [monday] = plan([{ id: 30, subject: 'MISC' }, { id: 22, subject: 'QA' }]);
+      assert.equal(monday.session_id, 30);
+      assert.match(monday.flags[0], /MISC has no faculty assigned/);
+    });
+  });
+
   const rooms = [
     { id: 1, name: 'Achievers', capacity: 42 },
     { id: 2, name: 'Believers', capacity: 40 },

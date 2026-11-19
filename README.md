@@ -99,8 +99,12 @@ leaks, delete that key in Google Cloud and create a new one.
   Start Date, End Date, one row per set of hours. Times without AM or PM before 7:00 are
   refused rather than guessed, and dates are read day first.
 - **Weekly schedule:** Generate week fills each batch's classes with the next unfinished
-  sessions of its master flow. Each class gets the faculty in that subject's slot, or a
-  substitute if they're on week-off or already teaching, and the smallest free room that
+  sessions of its master flow. Each subject keeps its own order, and a class takes the
+  subject due next. It gets the faculty in that subject's slot, or a substitute if they're
+  on week-off or already teaching. If every faculty of that subject is off or busy, the class
+  switches to the next subject whose faculty is free, and the skipped session waits for the
+  next class its faculty can take; the class says it was switched and why. A subject with no
+  slot or nobody assigned is flagged instead of switched. Each class also gets the smallest free room that
   seats the batch's active students. Batches marked online go in the shared Online column.
   The day grid shows rooms across and times down: drag a block to move it, click it to
   edit, and double-click empty space or use Add block for meetings. Room and faculty
