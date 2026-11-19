@@ -344,3 +344,59 @@ if (version() < 9) {
     db.exec('PRAGMA user_version = 9');
   });
 }
+if (version() < 10) {
+  tx(() => {
+    db.exec(`
+      -- Faculty scheduling input for a month: leave, part days, events, batch breaks and so
+      -- on. Rows from the Google Form are replaced on each read of its response sheet; rows
+      -- the admin adds stay. entry_key ties a row to its review: a form row's key is a hash
+      -- of its answers, so a response edited after review comes back to be reviewed again.
+      CREATE TABLE input_entries (
+        id           INTEGER PRIMARY KEY,
+        entry_key    TEXT NOT NULL UNIQUE,
+        source       TEXT NOT NULL CHECK (source IN ('form','admin')),
+        sheet_row    INTEGER,
+        submitted_at TEXT,
+        month        TEXT NOT NULL,
+        faculty_code TEXT NOT NULL DEFAULT '',
+        faculty_id   INTEGER REFERENCES faculties(id) ON DELETE SET NULL,
+        kind         TEXT NOT NULL,
+        from_date    TEXT,
+        to_date      TEXT,
+        from_time    TEXT,
+        to_time      TEXT,
+        batch_codes  TEXT NOT NULL DEFAULT '',
+        others       TEXT NOT NULL DEFAULT '',
+        room_id      INTEGER REFERENCES rooms(id) ON DELETE SET NULL,
+        details      TEXT NOT NULL DEFAULT '',
+        problems     TEXT NOT NULL DEFAULT '[]'
+      );
+      CREATE INDEX input_entries_month ON input_entries(month);
+
+      -- Approved or rejected, by entry_key. Approving a workshop or meeting with times puts
+      -- blocks on the schedule; their ids are kept so taking the approval back removes them.
+      CREATE TABLE input_reviews (
+        entry_key   TEXT PRIMARY KEY,
+        status      TEXT NOT NULL CHECK (status IN ('approved','rejected')),
+        reviewed_at TEXT NOT NULL,
+        event_ids   TEXT NOT NULL DEFAULT '[]'
+      );
+
+      CREATE TABLE input_months (
+        month    TEXT PRIMARY KEY,
+        deadline TEXT
+      );
+
+      CREATE TABLE input_sync_runs (
+        id          INTEGER PRIMARY KEY,
+        started_at  TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        ok          INTEGER NOT NULL,
+        error       TEXT,
+        tab         TEXT,
+        row_count   INTEGER
+      );
+    `);
+    db.exec('PRAGMA user_version = 10');
+  });
+}

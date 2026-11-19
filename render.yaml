@@ -22,5 +22,9 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false
+      - key: INPUT_SHEET_ID
+        sync: false
+      - key: INPUT_FORM_URL
+        sync: false
       - key: SHEET_SYNC_MINUTES
         value: "5"

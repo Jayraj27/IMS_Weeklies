@@ -12,6 +12,7 @@ import { db, tx } from '../db.js';
 import { addDays, isIsoDate, isTime, weekdayOf } from '../../public/admin/calendar.js';
 import { generateWeek, overlaps, weekStartOf } from './generate.js';
 import { weekWorkbook } from './export.js';
+import { inputEffects } from '../inputs/effects.js';
 
 export const scheduleRouter = express.Router();
 
@@ -116,13 +117,19 @@ function findWarnings({ classes, events }) {
   ];
   const warnings = new Map(items.map((i) => [i.key, []]));
   const add = (key, text) => { if (!warnings.get(key).includes(text)) warnings.get(key).push(text); };
+  const dates = [...classes, ...events].map((x) => x.date).sort();
+  const effects = dates.length ? inputEffects(dates[0], dates.at(-1)) : inputEffects('9999-12-31', '0000-01-01');
 
   for (let i = 0; i < items.length; i++) {
     const a = items[i];
     for (const id of a.faculty_ids) {
       const f = faculties.get(id);
-      if (f?.week_offs.includes(weekdayOf(a.date))) add(a.key, `${f.code} has ${weekdayOf(a.date)} off.`);
+      if (f?.week_offs.includes(weekdayOf(a.date)) && !effects.extraDays.has(`${id}|${a.date}`)) add(a.key, `${f.code} has ${weekdayOf(a.date)} off.`);
+      const gone = effects.away.find((x) => x.faculty_id === id && overlaps(x, a));
+      if (gone) add(a.key, `${f?.code ?? 'A faculty'} is ${gone.reason}.`);
     }
+    const shut = a.room_id && effects.roomsShut.find((x) => x.room_id === a.room_id && overlaps(x, a));
+    if (shut) add(a.key, `${shut.room_name} is closed then.`);
     for (let j = i + 1; j < items.length; j++) {
       const b = items[j];
       if (!overlaps(a, b)) continue;
@@ -140,6 +147,8 @@ function findWarnings({ classes, events }) {
   for (const c of classes) {
     if (c.status === 'cancelled') continue;
     const key = `class:${c.id}`;
+    const shut = effects.closures.find((x) => (!x.batch_ids || x.batch_ids.includes(c.batch_id)) && overlaps(x, c));
+    if (shut) add(key, `${shut.reason}.`);
     if (!c.online && !c.room_id) add(key, 'No room yet.');
     if (!c.online && c.room_capacity != null && c.batch_size > c.room_capacity) {
       add(key, `${c.batch_size} active students, but ${c.room_name} seats ${c.room_capacity}.`);
@@ -216,7 +225,8 @@ scheduleRouter.post('/generate', (req, res) => {
       ...live.filter((c) => c.faculty_id).map((c) => ({ ...c, batch_name: c.batch_name })),
       ...events.flatMap((e) => e.faculty_ids.map((faculty_id) => ({ faculty_id, date: e.date, start_time: e.start_time, end_time: e.end_time, batch_name: e.title }))),
     ];
-    const roomBookings = [...live, ...events].filter((x) => x.room_id && !x.online);
+    const effects = inputEffects(weekStart, weekEnd);
+    const roomBookings = [...live, ...events, ...effects.roomsShut].filter((x) => x.room_id && !x.online);
 
     const batches = ready.map(({ batch, flowId, timings }) => {
       const finished = db.prepare('SELECT session_id FROM batch_session_progress WHERE batch_id = ?').all(batch.id).map((r) => r.session_id);
@@ -238,17 +248,22 @@ scheduleRouter.post('/generate', (req, res) => {
       };
     });
 
-    const planned = generateWeek({ weekStart, batches, faculties: facultyList(), bookings, rooms: roomList(), roomBookings });
+    const closed = [];
+    const planned = generateWeek({
+      weekStart, batches, faculties: facultyList(), bookings, rooms: roomList(), roomBookings,
+      away: effects.away, extraDays: effects.extraDays, closures: effects.closures, closed,
+    });
     const insert = db.prepare(`
       INSERT INTO schedule_classes (batch_id, date, start_time, end_time, session_id, faculty_id, room_id, online, status, edited, flags)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned', 0, ?)`);
     for (const c of planned) insert.run(c.batch_id, c.date, c.start_time, c.end_time, c.session_id, c.faculty_id, c.room_id, c.online, JSON.stringify(c.flags));
     return {
       created: planned.length,
-      flagged: planned.filter((c) => (c.flags.length && !c.flags[0].startsWith('Covered by')) || (!c.online && !c.room_id)).length,
+      flagged: planned.filter((c) => (c.flags.length && !/^(Covered by|Switched from)/.test(c.flags[0])) || (!c.online && !c.room_id)).length,
       no_room: planned.filter((c) => !c.online && !c.room_id).length,
       replaced: replaced.n ?? 0,
       replaced_edited: replaced.edited ?? 0,
+      closed: closed.length,
     };
   });
   res.json({ week: weekStart, ...result, batches: ready.length, skipped });

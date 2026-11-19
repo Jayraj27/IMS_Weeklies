@@ -3,6 +3,7 @@ import { db, tx } from './db.js';
 import { studentsRouter } from './students/routes.js';
 import { scheduleRouter } from './schedule/routes.js';
 import { reportsRouter } from './reports/routes.js';
+import { inputsRouter } from './inputs/routes.js';
 import { syncStatus } from './students/sync.js';
 import { activeStudentCount, linkReport, reconcileStudentLinks } from './students/link.js';
 import { normalizeCode, variantKey, yearFromCode } from './students/variants.js';
@@ -16,6 +17,7 @@ api.use(express.json({ limit: '5mb' }));
 api.use('/students', studentsRouter);
 api.use('/schedule', scheduleRouter);
 api.use('/reports', reportsRouter);
+api.use('/inputs', inputsRouter);
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });

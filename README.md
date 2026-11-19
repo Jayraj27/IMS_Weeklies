@@ -18,7 +18,8 @@ Data is stored in `data/weeklies.db`. Back up that file to back up everything.
 The first start creates an admin and prints its password once in the terminal. To add an
 admin or reset a forgotten password, run `npm run set-password -- <username>`.
 
-Settings, as environment variables: `PORT`, `HOST`, `DB_PATH`.
+Settings, as environment variables: `PORT`, `HOST`, `DB_PATH`. The Google settings are
+described below.
 
 ## Put it online
 
@@ -76,6 +77,29 @@ leaks, delete that key in Google Cloud and create a new one.
 - Doubtful values, such as a repeated IMS ID or a date of birth that could be day/month
   or month/day, are flagged under "Needs checking" and never corrected.
 
+## Connect the faculty input form
+
+Each month faculty send their leave, part days, workshops and batch breaks through a
+Google Form. The app reads the form's response sheet with the same read-only Google
+identity as the student sheet, so set that up first.
+
+1. Go to [script.google.com](https://script.google.com) with the Google account that should
+   own the form, and start a new project. Paste in all of `tools/scheduling-input-form.gs`.
+2. Fill `FACULTY_CODES` in that script with your faculty codes, such as `'AB - Name'`.
+3. Run `createForm`, and allow the access it asks for. The log shows three links: the
+   form for faculty, the form's edit page, and the response sheet.
+4. Share the response sheet as **Viewer** with the service account's email (the same one
+   the student sheet is shared with).
+5. In `.env`, set `INPUT_SHEET_ID` to the response sheet's link, and `INPUT_FORM_URL` to
+   the form link so the Faculty input page can copy it for you. Restart with `npm start`.
+
+A faculty sends the whole month in one response: Faculty Code and Month once, then Item 1,
+and "Add another item?" leads to Item 2, up to 6 items (more go in a second response). Each
+item is reviewed on its own. For new faculty, edit `FACULTY_CODES` and run `refreshChoices`;
+it also moves the Month list on. Keep the "What is it?" choices word for word, and the
+"Item n:" start of each item's questions: the app reads them. The response
+sheet is read every 5 minutes, and Faculty input > Read responses now reads it on demand.
+
 ## How the pieces fit
 
 - **Courses** define the faculty slots (Mentor, QA1, VRC1...) that new batches start with.
@@ -130,7 +154,11 @@ leaks, delete that key in Google Cloud and create a new one.
   when the code appears in the sheet.
 - **Master flows** belong to a course, one per variant of it (such as CAT 27 or Crash
   CAT 26). Upload one by pasting rows or choosing a CSV. Columns are found by heading:
-  Topic and Subject are needed; Topic Code, Area and Homework link are optional. Tick the
+  Topic and Subject are needed; Topic Code, Area and Homework link are optional. Uploading shows the flow divided by subject, and warns when two names look like one
+  subject written two ways, such as VA and VARC or DILR and LRDI, since the scheduler would
+  treat them as two. In the flow, By subject shows each subject in its own order and
+  numbering (QA 1, QA 2...), the way the weekly schedule takes them; moving a session there
+  keeps the other subjects in place. Teaching order is the flow as uploaded. Tick the
   batches that follow it. Each batch follows one flow. A course-wide flow is also
   possible, covering every batch not mapped to its own flow.
 - **Reports > Faculty workload:** teaching hours per faculty for a week or month, split into
@@ -142,6 +170,20 @@ leaks, delete that key in Google Cloud and create a new one.
   today teaches one session. Compared with the batch's end date: weeks late and sessions
   short, or classes to spare. Late batches come first. Also shows how many classes were
   marked done on the schedule in the last four weeks against the timetable.
+- **Faculty input** (monthly): a response to the form holds up to 6 items for one month: leave
+  (whole days), away part of a day, available on a usual day off, a workshop or meeting, a
+  batch break, a batch request, a centre closure, or nothing to report. The page opens on
+  next month and shows who with a batch hasn't replied yet, with a deadline and a reminder
+  to copy into the email thread or WhatsApp group. Each item waits for approval and says
+  what it will do; one with a problem, such as an unknown faculty code, can't be approved,
+  but can be fixed as a new entry. Approved items reach the schedule: no classes for a
+  faculty on leave or away (a substitute or another subject takes them), extra days override
+  a week-off, closures and batch breaks leave classes out, and a workshop with a date and
+  times becomes a block on the day grid. Items without a fixed day, and batch requests such
+  as an extra session, are arranged by hand. A response edited in the form comes back for
+  review. The admin can add items too, such as a centre holiday or a room under maintenance;
+  those count straight away. Classes already on the schedule show a warning when approved
+  input affects them; generate the week again to apply it.
 - **Batch progress** records which sessions each batch has finished. Set the last finished
   session per subject, because subjects move at different speeds, or use "All up to No"
   when a batch has followed the order exactly. Re-uploading a corrected flow keeps progress:

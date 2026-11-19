@@ -10,6 +10,7 @@ import { studentsView } from './views/students.js';
 import { progressView } from './views/progress.js';
 import { scheduleView } from './views/schedule.js';
 import { reportsView } from './views/reports.js';
+import { facultyInputView } from './views/inputs.js';
 
 const NAV = [
   { path: '', label: 'Overview' },
@@ -18,6 +19,7 @@ const NAV = [
   { path: 'batches', label: 'Batches', count: (s) => s.batches.length },
   { path: 'flows', label: 'Master flows', count: (s) => s.flows.length },
   { path: 'schedule', label: 'Weekly schedule' },
+  { path: 'inputs', label: 'Faculty input' },
   { path: 'progress', label: 'Batch progress' },
   { path: 'reports', label: 'Reports' },
   { path: 'rooms', label: 'Rooms', count: (s) => s.rooms.length },
@@ -39,6 +41,7 @@ function viewFor({ parts, query }) {
     case 'schedule': return scheduleView(query);
     case 'progress': return progressView(query);
     case 'reports': return reportsView(query);
+    case 'inputs': return facultyInputView(query);
     case 'rooms': return roomsView();
     case 'students': return studentsView(query);
     default: return overviewView();
@@ -63,6 +66,7 @@ function drawNav(section) {
 }
 
 store.render = () => {
+  if (!store.state) return; // still loading; the first load draws the page when it's done
   const route = parseRoute();
   guard.dirty = false;
   drawNav(route.parts[0]);

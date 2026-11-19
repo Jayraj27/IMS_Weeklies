@@ -3,6 +3,7 @@ import {
   deleteDialog, save, refresh, toast, plural,
 } from '../lib.js';
 import { parseSessions } from './parse-sessions.js';
+import { groupBySubject, similarSubjects, similarText } from '../subjects.js';
 
 /* ---------- list of flows ---------- */
 
@@ -21,10 +22,30 @@ function reach(flow) {
     : `Course-wide: all ${plural(inCourse.length, 'batch', 'batches')}`;
 }
 
+/** "QA 40 · VARC 32 · DILR 28": each subject's own share of the flow. */
 function subjectCounts(sessions) {
-  const counts = new Map();
-  for (const s of sessions) counts.set(s.subject, (counts.get(s.subject) ?? 0) + 1);
-  return [...counts].map(([subject, n]) => `${subject} ${n}`).join(' · ');
+  return groupBySubject(sessions).map((g) => `${g.subject} ${g.items.length}`).join(' · ');
+}
+
+const subjectWarnings = (sessions) => similarText(similarSubjects(sessions.map((s) => s.subject)))
+  .map((w) => h('p', { class: 'subject-warning' }, w));
+
+/** The flow split into its subjects, as a short preview: first and last topic of each. */
+function subjectPreview(sessions) {
+  const label = (s) => `${s.topic_code ? `${s.topic_code} ` : ''}${s.topic}`;
+  return [
+    h('div', { class: 'subject-split' }, groupBySubject(sessions).map((g) => {
+      const first = g.items[0].session;
+      const last = g.items.at(-1).session;
+      const others = [...new Set(g.items.map((i) => i.session.subject.trim()))].filter((m) => m.toLowerCase() !== g.subject.toLowerCase());
+      return h('div', { class: 'subject-split-card' },
+        h('b', null, g.subject), h('span', { class: 'muted' }, ` · ${plural(g.items.length, 'session')}`),
+        others.length ? h('div', { class: 'muted small-text' }, `Includes ${others.join(', ')}`) : null,
+        h('div', { class: 'small-text' }, `1. ${label(first)}`),
+        g.items.length > 1 ? h('div', { class: 'small-text' }, `${g.items.length}. ${label(last)}`) : null);
+    })),
+    ...subjectWarnings(sessions),
+  ];
 }
 
 export function flowsView() {
@@ -125,14 +146,12 @@ function uploadDialog(existingCount, onAdd) {
     const { sessions, problems, notes } = parseSessions(area.value);
     const oldError = area.closest('dialog')?.querySelector('.form-error');
     if (oldError) oldError.hidden = true;
-    const counts = new Map();
-    for (const s of sessions) counts.set(s.subject, (counts.get(s.subject) ?? 0) + 1);
-    const breakdown = [...counts].map(([subject, n]) => `${subject} ${n}`).join(' · ');
     const danger = { style: 'color:var(--danger)' };
     summary.replaceChildren(
-      h('p', null, sessions.length ? `Ready: ${plural(sessions.length, 'session')} · ${breakdown}` : ''),
+      h('p', null, sessions.length ? `Ready: ${plural(sessions.length, 'session')}, divided by subject:` : ''),
+      ...(sessions.length ? subjectPreview(sessions) : []),
       ...problems.slice(0, 5).map((p) => h('p', danger, p)),
-      problems.length > 5 ? h('p', danger, `…and ${problems.length - 5} more.`) : null,
+      problems.length > 5 ? h('p', danger, `…and ${problems.length - 5} more.`) : '',
       ...notes.slice(0, 3).map((n) => h('p', null, n)),
     );
   }
@@ -245,7 +264,11 @@ export function flowEditorView(idText, query) {
 
   const tbody = h('tbody');
   const totalEl = h('span', { class: 'session-total', role: 'status' });
+  const warningsEl = h('div', { role: 'status' });
+  const orderSlot = h('div');
+  const bySubjectSlot = h('div', { class: 'by-subject' });
   let dragFrom = null;
+  let layout = 'subject';
 
   function moveSession(from, to) {
     if (to < 0 || to >= draft.sessions.length || from === to) return;
@@ -258,6 +281,57 @@ export function flowEditorView(idText, query) {
   function updateTotal() {
     const breakdown = subjectCounts(draft.sessions.filter((s) => String(s.subject).trim()));
     totalEl.textContent = `${plural(draft.sessions.length, 'session')}${breakdown ? ` · ${breakdown}` : ''}`;
+    warningsEl.replaceChildren(...subjectWarnings(draft.sessions));
+  }
+
+  /* --- by subject: each subject in its own order, as the scheduler takes them --- */
+
+  // Moving within a subject swaps places with that subject's neighbour in the whole flow,
+  // so the other subjects stay where they are.
+  function swapSessions(a, b) {
+    [draft.sessions[a], draft.sessions[b]] = [draft.sessions[b], draft.sessions[a]];
+    markDirty();
+    drawSessions();
+  }
+
+  function drawBySubject() {
+    const groups = groupBySubject(draft.sessions);
+    const unnamed = draft.sessions.filter((s) => !String(s.subject).trim() && [s.topic_code, s.topic].some((v) => String(v).trim())).length;
+    const edit = (session, key, label, max) => h('input', { 'aria-label': label, maxLength: max, value: session[key], oninput: (e) => { session[key] = e.target.value; markDirty(); } });
+    const row = (g) => ({ session, index, no }, k) => h('tr', null,
+      h('td', { class: 'pos' }, no),
+      h('td', { class: 'pos muted' }, index + 1),
+      h('td', { class: 'col-code' }, edit(session, 'topic_code', `${g.subject} ${no} topic code`, 60)),
+      h('td', { class: 'col-topic' }, edit(session, 'topic', `${g.subject} ${no} topic`, 300)),
+      h('td', { class: 'col-area' }, edit(session, 'area', `${g.subject} ${no} area`, 80)),
+      h('td', { class: 'col-subject' }, h('input', {
+        'aria-label': `${g.subject} ${no} subject`, list: 'subject-list', maxLength: 60, value: session.subject,
+        oninput: (e) => { session.subject = e.target.value; markDirty(); updateTotal(); },
+        onchange: () => drawSessions(), // regroup once the new subject is entered
+      })),
+      h('td', { class: 'nowrap' },
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${g.subject} ${no} earlier in ${g.subject}`, disabled: k === 0, onclick: () => swapSessions(index, g.items[k - 1].index) }, '↑'),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${g.subject} ${no} later in ${g.subject}`, disabled: k === g.items.length - 1, onclick: () => swapSessions(index, g.items[k + 1].index) }, '↓')));
+
+    bySubjectSlot.replaceChildren(
+      groups.length ? '' : h('p', { class: 'muted', style: 'padding:12px 0' }, 'No sessions yet. Upload them, or add them one at a time.'),
+      unnamed ? h('p', { class: 'subject-warning' }, `${plural(unnamed, 'session')} without a subject ${unnamed === 1 ? 'is' : 'are'} only shown in Teaching order.`) : '',
+      ...groups.map((g) => h('section', { class: 'subject-block' },
+        h('h3', null, g.subject, h('span', { class: 'muted' }, ` · ${plural(g.items.length, 'session')}`)),
+        h('div', { class: 'table-wrap sessions' }, h('table', null,
+          h('thead', null, h('tr', null,
+            h('th', { class: 'num' }, `${g.subject} no`), h('th', { class: 'num' }, 'Flow no'), h('th', null, 'Topic code'), h('th', null, 'Topic'),
+            h('th', null, 'Area'), h('th', null, 'Subject'), h('th', null, h('span', { class: 'sr-only' }, 'Move')))),
+          h('tbody', null, g.items.map(row(g))))))),
+    );
+  }
+
+  const layoutTabs = h('div', { class: 'tabs', role: 'group', 'aria-label': 'Show sessions' });
+  function drawLayout() {
+    layoutTabs.replaceChildren(...[['subject', 'By subject'], ['order', 'Teaching order']].map(([value, text]) =>
+      h('button', { class: 'tab', type: 'button', 'aria-pressed': String(layout === value), onclick: () => { layout = value; drawLayout(); drawSessions(); } }, text)));
+    orderSlot.hidden = layout !== 'order';
+    bySubjectSlot.hidden = layout !== 'subject';
   }
 
   function sessionRow(session, i) {
@@ -305,6 +379,7 @@ export function flowEditorView(idText, query) {
   }
 
   function drawSessions() {
+    if (layout === 'subject') drawBySubject();
     tbody.replaceChildren(
       ...(draft.sessions.length
         ? draft.sessions.map(sessionRow)
@@ -312,12 +387,16 @@ export function flowEditorView(idText, query) {
     );
     updateTotal();
   }
+  drawLayout();
   drawSessions();
 
   function addSession() {
     const last = draft.sessions.at(-1);
     draft.sessions.push({ topic_code: '', topic: '', area: last?.area ?? '', subject: last?.subject ?? '', homework: '' });
     markDirty();
+    // A new session goes at the end of the flow, so show it there.
+    layout = 'order';
+    drawLayout();
     drawSessions();
     tbody.lastChild.querySelector('input').focus();
   }
@@ -364,19 +443,7 @@ export function flowEditorView(idText, query) {
     },
   }, isNew ? 'Create flow' : 'Save flow');
 
-  return h(
-    'div',
-    null,
-    h('a', { class: 'back-link', href: '#/flows' }, '← Master flows'),
-    pageHead(isNew ? 'New master flow' : draft.name),
-    h(
-      'section',
-      { class: 'panel' },
-      h('div', { class: 'field-row' }, field('Flow name', nameInput), field('Course', courseSelect)),
-      scopeSlot,
-    ),
-    h('h2', { class: 'section' }, 'Sessions, in teaching order'),
-    h(
+  orderSlot.append(h(
       'div',
       { class: 'table-wrap sessions' },
       h(
@@ -393,7 +460,24 @@ export function flowEditorView(idText, query) {
           h('th', null, h('span', { class: 'sr-only' }, 'Actions')))),
         tbody,
       ),
+    ));
+
+  return h(
+    'div',
+    null,
+    h('a', { class: 'back-link', href: '#/flows' }, '← Master flows'),
+    pageHead(isNew ? 'New master flow' : draft.name),
+    h(
+      'section',
+      { class: 'panel' },
+      h('div', { class: 'field-row' }, field('Flow name', nameInput), field('Course', courseSelect)),
+      scopeSlot,
     ),
+    h('div', { class: 'view-bar' }, h('h2', { class: 'section', style: 'margin:0' }, 'Sessions'), layoutTabs),
+    h('p', { class: 'hint' }, 'By subject shows each subject in its own order, the way the weekly schedule takes them: when a subject’s faculty can’t come, the class moves to another subject and this one waits. Teaching order is the flow as uploaded.'),
+    warningsEl,
+    bySubjectSlot,
+    orderSlot,
     h(
       'div',
       { class: 'session-actions' },

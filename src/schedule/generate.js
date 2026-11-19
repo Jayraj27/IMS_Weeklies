@@ -36,8 +36,10 @@ export const overlaps = (a, b) => a.date === b.date && a.start_time < b.end_time
  * slots: [{ role, subject, faculty_id, substitute_ids }] in the batch's order.
  * faculties: Map of id to { id, code, week_offs }.
  * bookings: [{ faculty_id, date, start_time, end_time, batch_name }] already taken.
+ * away: [{ faculty_id, date, start_time, end_time, reason }] from approved faculty input.
+ * extraDays: a Set of "facultyId|date" where a faculty teaches despite a week-off.
  */
-export function chooseFaculty({ subject, slots, date, start_time, end_time, faculties, bookings }) {
+export function chooseFaculty({ subject, slots, date, start_time, end_time, faculties, bookings, away = [], extraDays = new Set() }) {
   const weekday = weekdayOf(date);
   const matching = slots.filter((s) => subjectMatches(subject, s.subject));
   if (!matching.length) {
@@ -56,8 +58,13 @@ export function chooseFaculty({ subject, slots, date, start_time, end_time, facu
   for (const id of candidates) {
     const f = faculties.get(id);
     if (!f) continue;
-    if (f.week_offs.includes(weekday)) {
+    if (f.week_offs.includes(weekday) && !extraDays.has(`${id}|${date}`)) {
       reasons.push(`${f.code} has ${weekday} off`);
+      continue;
+    }
+    const gone = away.find((a) => a.faculty_id === id && overlaps(a, { date, start_time, end_time }));
+    if (gone) {
+      reasons.push(`${f.code} is ${gone.reason}`);
       continue;
     }
     const clash = bookings.find((b) => b.faculty_id === id && overlaps(b, { date, start_time, end_time }));
@@ -93,9 +100,11 @@ export function chooseRoom({ size, rooms, bookings, date, start_time, end_time, 
  *   sessions: the flow's sessions in order; unavailable: a Set of session ids already
  *   finished or planned elsewhere; occupied: class times this week that are kept as they are.
  * bookings: other faculty commitments this week; roomBookings: rooms already taken this week.
- * Both are added to as classes are planned.
+ * Both are added to as classes are planned. away and extraDays: see chooseFaculty.
+ * closures: [{ date, start_time, end_time, batch_ids (null for every batch), reason }]; a
+ * class they cover isn't planned, and is added to `closed` instead.
  */
-export function generateWeek({ weekStart, batches, faculties, bookings, rooms = [], roomBookings = [] }) {
+export function generateWeek({ weekStart, batches, faculties, bookings, rooms = [], roomBookings = [], away = [], extraDays = new Set(), closures = [], closed = [] }) {
   const weekEnd = addDays(weekStart, 6);
   const facultyById = new Map(faculties.map((f) => [f.id, f]));
   const booked = [...bookings];
@@ -109,7 +118,10 @@ export function generateWeek({ weekStart, batches, faculties, bookings, rooms = 
     const range = { from: weekStart, to: weekEnd, startDate: batch.start_date, endDate: batch.end_date };
     for (const c of classesBetween(batch.timings, range)) {
       const kept = (batch.occupied ?? []).some((o) => o.date === c.date && o.start_time === c.start_time);
-      if (!kept) classes.push({ ...c, batch });
+      if (kept) continue;
+      const shut = closures.find((x) => (!x.batch_ids || x.batch_ids.includes(batch.id)) && overlaps(x, c));
+      if (shut) closed.push({ batch_id: batch.id, batch_name: batch.name, date: c.date, start_time: c.start_time, reason: shut.reason });
+      else classes.push({ ...c, batch });
     }
   }
   // In time order across all batches, so whoever is planned first gets first claim on a faculty.
@@ -130,7 +142,7 @@ export function generateWeek({ weekStart, batches, faculties, bookings, rooms = 
       planned.flags.push('No sessions left in this batch’s master flow.');
       return planned;
     }
-    const time = { slots: batch.slots, date: c.date, start_time: c.start_time, end_time: c.end_time, faculties: facultyById, bookings: booked };
+    const time = { slots: batch.slots, date: c.date, start_time: c.start_time, end_time: c.end_time, faculties: facultyById, bookings: booked, away, extraDays };
     const { session, pick, switched } = pickSession(queue, (subject) => chooseFaculty({ subject, ...time }));
     queue.splice(queue.indexOf(session), 1);
     planned.session_id = session.id;

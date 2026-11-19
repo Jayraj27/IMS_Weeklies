@@ -459,7 +459,7 @@ export function scheduleView(query) {
     }
     try {
       const result = await api('POST', '/schedule/generate', { week: view.week, batch_id: view.batch ? Number(view.batch) : undefined });
-      const extra = [result.flagged ? `${result.flagged} need attention` : null, result.no_room ? `${result.no_room} without a room` : null].filter(Boolean).join(', ');
+      const extra = [result.flagged ? `${result.flagged} need attention` : null, result.no_room ? `${result.no_room} without a room` : null, result.closed ? `${plural(result.closed, 'class', 'classes')} left out for holidays and breaks` : null].filter(Boolean).join(', ');
       toast(`Planned ${plural(result.created, 'class', 'classes')} for ${plural(result.batches, 'batch', 'batches')}${extra ? `. ${extra}.` : '.'}`);
       if (result.skipped.length) toast(`Skipped: ${result.skipped.map((s) => `${s.batch} (${s.reason})`).join(' ')}`, true);
       store.render();

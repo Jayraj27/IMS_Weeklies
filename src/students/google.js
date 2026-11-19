@@ -90,22 +90,24 @@ async function getJson(url, key) {
   if (res.status === 403) {
     throw new SheetAccessError(`No access to the sheet. Ask its owner to share it as Viewer with ${key.client_email}. If it is already shared, check that the Google Sheets API is enabled for this Cloud project.`);
   }
-  if (res.status === 404) throw new SheetAccessError('Sheet not found. Check GOOGLE_SHEET_ID.');
+  if (res.status === 404) throw new SheetAccessError('Sheet not found. Check the sheet ID in the settings (.env).');
   if (res.status === 429) throw new SheetAccessError('Google is limiting requests right now. The next sync will try again.');
   throw new SheetAccessError(`Google Sheets returned an error (${res.status}).`);
 }
 
 const quoteTab = (title) => `'${title.replace(/'/g, "''")}'`;
 
-/** Uses the configured tab, otherwise the one tab whose first rows contain the headings. */
-async function chooseTab(sheetId, key) {
+/**
+ * Uses the wanted tab, otherwise the one tab whose first rows look right.
+ * looksRight(row) checks one row of text cells; what names the headings in error messages.
+ */
+async function chooseTab(sheetId, key, { wanted, looksRight, what, tabSetting }) {
   const base = `${apiBase()}/v4/spreadsheets/${encodeURIComponent(sheetId)}`;
   const meta = await getJson(`${base}?fields=sheets.properties(title,sheetType)`, key);
   const titles = (meta.sheets ?? [])
     .filter((s) => (s.properties.sheetType ?? 'GRID') === 'GRID')
     .map((s) => s.properties.title);
 
-  const wanted = process.env.GOOGLE_SHEET_TAB?.trim();
   if (wanted) {
     if (!titles.includes(wanted)) {
       throw new SheetAccessError(`The sheet has no tab named "${wanted}". Its tabs are: ${titles.join(', ')}.`);
@@ -116,25 +118,25 @@ async function chooseTab(sheetId, key) {
   const params = new URLSearchParams();
   for (const title of titles) params.append('ranges', `${quoteTab(title)}!A1:BZ10`);
   const { valueRanges = [] } = await getJson(`${base}/values:batchGet?${params}`, key);
-  const matches = titles.filter((_, i) => (valueRanges[i]?.values ?? []).some((row) => looksLikeHeader(row)));
+  const matches = titles.filter((_, i) => (valueRanges[i]?.values ?? []).some((row) => looksRight(row)));
 
   if (matches.length === 1) return matches[0];
   if (!matches.length) {
-    throw new SheetAccessError(`No tab has an "IMS ID" heading. Tabs found: ${titles.join(', ')}. Set GOOGLE_SHEET_TAB if the heading is lower down.`);
+    throw new SheetAccessError(`No tab has ${what}. Tabs found: ${titles.join(', ')}.${tabSetting ? ` Set ${tabSetting} if the heading is lower down.` : ''}`);
   }
-  throw new SheetAccessError(`More than one tab looks like the student list: ${matches.join(', ')}. Set GOOGLE_SHEET_TAB to choose one.`);
+  throw new SheetAccessError(`More than one tab has ${what}: ${matches.join(', ')}.${tabSetting ? ` Set ${tabSetting} to choose one.` : ''}`);
 }
 
 /**
- * Returns the tab's cells. Displayed text and stored numbers come back in one request,
- * so they can't disagree if someone edits the sheet mid-read.
+ * Returns a tab's cells. Displayed text and stored numbers come back in one request,
+ * so they can't disagree if someone edits the sheet mid-read. A date or time cell's
+ * number is its spreadsheet serial, which is never ambiguous the way "5/11" is.
  */
-export async function fetchStudentGrid() {
-  const sheetId = sheetIdFrom(process.env.GOOGLE_SHEET_ID);
+export async function fetchGrid({ sheetId, wanted, looksRight, what, tabSetting }) {
   const key = readServiceAccount();
   if (!sheetId || !key) throw new SheetAccessError('The sheet connection is not set up yet.');
 
-  const tab = await chooseTab(sheetId, key);
+  const tab = await chooseTab(sheetId, key, { wanted, looksRight, what, tabSetting });
   const params = new URLSearchParams({
     ranges: quoteTab(tab),
     includeGridData: 'true',
@@ -151,4 +153,14 @@ export async function fetchStudentGrid() {
     })),
   );
   return { tab, grid };
+}
+
+export function fetchStudentGrid() {
+  return fetchGrid({
+    sheetId: sheetIdFrom(process.env.GOOGLE_SHEET_ID),
+    wanted: process.env.GOOGLE_SHEET_TAB?.trim(),
+    looksRight: looksLikeHeader,
+    what: 'an "IMS ID" heading',
+    tabSetting: 'GOOGLE_SHEET_TAB',
+  });
 }
