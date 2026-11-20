@@ -5,6 +5,7 @@ import { api } from './src/api.js';
 import { authRouter, ensureFirstAdmin, redirectIfSignedIn, requireApi, requirePage, sameOriginOnly } from './src/auth.js';
 import { startSyncSchedule } from './src/students/sync.js';
 import { startInputSyncSchedule } from './src/inputs/sync.js';
+import { startCalendarSchedule } from './src/calendar/sync.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -52,4 +53,5 @@ app.listen(PORT, HOST, () => {
   console.log(`Weeklies admin running at http://localhost:${PORT}/admin/`);
   startSyncSchedule();
   startInputSyncSchedule();
+  startCalendarSchedule();
 });

@@ -52,6 +52,7 @@ const FACULTY_COLUMNS = {
   course: 'courses', courses: 'courses', coursesteach: 'courses', coursesteaches: 'courses', coursescanteach: 'courses', coursestheyteach: 'courses', coursecanteach: 'courses',
   subject: 'subjects', subjects: 'subjects', subjectscanteach: 'subjects', subjectstheycanteach: 'subjects',
   topic: 'topics', topics: 'topics', topicscanteach: 'topics', topicstheycanteach: 'topics',
+  email: 'email', emailid: 'email', mail: 'email', gmail: 'email', emailaddress: 'email', calendaremail: 'email',
   weekoff: 'week_offs', weekoffs: 'week_offs', weeklyoff: 'week_offs', weeklyoffs: 'week_offs', off: 'week_offs', offday: 'week_offs', offdays: 'week_offs',
 };
 
@@ -69,12 +70,16 @@ export function parseFacultyUpload(text) {
       continue;
     }
     const key = r.code.toLowerCase();
-    if (!byCode.has(key)) byCode.set(key, { code: r.code, name: '', courses: [], subjects: [], topics: [], week_offs: [] });
+    if (!byCode.has(key)) byCode.set(key, { code: r.code, name: '', email: '', courses: [], subjects: [], topics: [], week_offs: [] });
     const row = byCode.get(key);
     if (r.name && row.name && r.name.toLowerCase() !== row.name.toLowerCase()) {
       problems.push(`Line ${r.line}: ${r.code} is also named "${row.name}". One code can only be one person.`);
     }
     row.name ||= r.name ?? '';
+    const email = String(r.email ?? '').trim();
+    if (email && row.email && email.toLowerCase() !== row.email.toLowerCase()) problems.push(`Line ${r.line}: ${r.code} already has the email ${row.email}.`);
+    if (email && !/^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/i.test(email)) problems.push(`Line ${r.line}: "${email}" is not an email address.`);
+    row.email ||= email;
     row.courses.push(...splitList(r.courses ?? ''));
     row.subjects.push(...splitList(r.subjects ?? ''));
     row.topics.push(...splitTopics(r.topics ?? ''));
@@ -85,6 +90,8 @@ export function parseFacultyUpload(text) {
   const unique = (list) => [...new Map(list.map((v) => [v.toLowerCase(), v])).values()];
   const rows = [...byCode.values()].map((row) => {
     const result = { code: row.code, name: row.name };
+    // An Email column with an empty cell clears it; no Email column leaves it as it is.
+    if (present.has('email')) result.email = row.email;
     for (const field of ['courses', 'subjects', 'topics', 'week_offs']) {
       if (present.has(field)) result[field] = unique(row[field]);
     }

@@ -1,4 +1,7 @@
-/* Read-only access to the Google Sheet, signed in as a service account. */
+/*
+ * Google access as the service account: read-only for the sheets, and, for the faculty
+ * calendars, write access to the calendars it owns. Each use asks only for its own scope.
+ */
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -8,6 +11,7 @@ import { looksLikeHeader } from './parse.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCOPE = 'https://www.googleapis.com/auth/spreadsheets.readonly';
+export const CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const TIMEOUT_MS = 120_000;
 
 const apiBase = () => process.env.GOOGLE_SHEETS_API_BASE || 'https://sheets.googleapis.com';
@@ -44,9 +48,10 @@ export function readServiceAccount() {
 
 /* ---------- sign-in ---------- */
 
-let cachedToken = null;
+const cachedTokens = new Map(); // scope -> { email, token, expiresAt }
 
-async function accessToken(key) {
+export async function accessToken(key, scope = SCOPE) {
+  const cachedToken = cachedTokens.get(scope);
   if (cachedToken && cachedToken.email === key.client_email && cachedToken.expiresAt > Date.now() + 60_000) {
     return cachedToken.token;
   }
@@ -55,7 +60,7 @@ async function accessToken(key) {
   const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
   const unsigned = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({
     iss: key.client_email,
-    scope: SCOPE,
+    scope,
     aud: tokenUri,
     iat: now,
     exp: now + 3600,
@@ -75,7 +80,7 @@ async function accessToken(key) {
     throw new SheetAccessError(`Google refused the service account sign-in (${res.status}). The key may have been deleted or disabled.`);
   }
   const data = await res.json();
-  cachedToken = { email: key.client_email, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 };
+  cachedTokens.set(scope, { email: key.client_email, token: data.access_token, expiresAt: Date.now() + data.expires_in * 1000 });
   return data.access_token;
 }
 

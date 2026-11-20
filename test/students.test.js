@@ -504,6 +504,10 @@ describe('sync', () => {
     const old = new DatabaseSync(file);
     old.exec("INSERT INTO rooms (name) VALUES ('Room Kept')");
     old.exec(`
+      DROP TABLE faculty_calendars;
+      DROP TABLE calendar_events;
+      DROP TABLE calendar_sync_runs;
+      ALTER TABLE faculties DROP COLUMN email;
       DROP TABLE input_entries;
       DROP TABLE input_reviews;
       DROP TABLE input_months;

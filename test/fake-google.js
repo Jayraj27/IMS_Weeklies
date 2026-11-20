@@ -56,7 +56,12 @@ export async function startFakeGoogle() {
     failWith: null, // status code to return from the Sheets API
     gridRequests: [],
     badSignatures: 0,
+    // Google Calendar: calendars by id, each with its sharing rules and events.
+    calendars: new Map(),
+    calendarCalls: [],
+    calendarApiOff: false,
   };
+  let nextId = 1;
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://x');
@@ -71,11 +76,65 @@ export async function startFakeGoogle() {
       const [header, claims, signature] = new URLSearchParams(body).get('assertion').split('.');
       const good = crypto.verify('RSA-SHA256', Buffer.from(`${header}.${claims}`), state.publicKey, Buffer.from(signature, 'base64url'));
       const scope = JSON.parse(Buffer.from(claims, 'base64url')).scope;
-      if (!good || scope !== 'https://www.googleapis.com/auth/spreadsheets.readonly') {
+      const scopes = ['https://www.googleapis.com/auth/spreadsheets.readonly', 'https://www.googleapis.com/auth/calendar'];
+      if (!good || !scopes.includes(scope)) {
         state.badSignatures += 1;
         return json(400, { error: 'invalid_grant' });
       }
-      return json(200, { access_token: 'fake-token', expires_in: 3600 });
+      return json(200, { access_token: scope.endsWith('calendar') ? 'fake-calendar-token' : 'fake-token', expires_in: 3600 });
+    }
+
+    if (url.pathname.startsWith('/calendar/v3/')) {
+      if (req.headers.authorization !== 'Bearer fake-calendar-token') return json(401, {});
+      if (state.calendarApiOff) return json(403, { error: { message: 'Google Calendar API has not been used in project 1 before or it is disabled.', errors: [{ reason: 'accessNotConfigured' }] } });
+      let body = '';
+      for await (const chunk of req) body += chunk;
+      const data = body ? JSON.parse(body) : null;
+      const parts = url.pathname.slice('/calendar/v3/'.length).split('/').map(decodeURIComponent);
+      state.calendarCalls.push(`${req.method} ${parts.join('/')}`);
+      if (parts[0] !== 'calendars') return json(404, {});
+      if (parts.length === 1 && req.method === 'POST') {
+        const id = `cal${nextId++}@group.calendar.google.com`;
+        state.calendars.set(id, { id, summary: data.summary, timeZone: data.timeZone, acl: new Map(), events: new Map() });
+        return json(200, { id, summary: data.summary });
+      }
+      const cal = state.calendars.get(parts[1]);
+      if (!cal) return json(404, { error: { message: 'Not Found' } });
+      if (parts.length === 2 && req.method === 'DELETE') {
+        state.calendars.delete(parts[1]);
+        res.writeHead(204).end();
+        return undefined;
+      }
+      if (parts[2] === 'acl') {
+        if (req.method === 'POST') {
+          const ruleId = `${data.scope.type}:${data.scope.value}`;
+          cal.acl.set(ruleId, data.role);
+          return json(200, { id: ruleId, role: data.role });
+        }
+        if (req.method === 'DELETE') {
+          if (!cal.acl.delete(parts[3])) return json(404, {});
+          res.writeHead(204).end();
+          return undefined;
+        }
+      }
+      if (parts[2] === 'events') {
+        if (req.method === 'POST') {
+          const id = `ev${nextId++}`;
+          cal.events.set(id, { ...data, id });
+          return json(200, { ...data, id });
+        }
+        if (!cal.events.has(parts[3])) return json(req.method === 'DELETE' ? 410 : 404, {});
+        if (req.method === 'PUT') {
+          cal.events.set(parts[3], { ...data, id: parts[3] });
+          return json(200, { ...data, id: parts[3] });
+        }
+        if (req.method === 'DELETE') {
+          cal.events.delete(parts[3]);
+          res.writeHead(204).end();
+          return undefined;
+        }
+      }
+      return json(405, {});
     }
 
     if (req.headers.authorization !== 'Bearer fake-token') return json(401, {});

@@ -400,3 +400,45 @@ if (version() < 10) {
     db.exec('PRAGMA user_version = 10');
   });
 }
+if (version() < 11) {
+  tx(() => {
+    db.exec(`
+      -- The Google account a faculty reads their calendar with.
+      ALTER TABLE faculties ADD COLUMN email TEXT;
+
+      -- Each faculty's Google calendar, made and kept up to date by the app. No foreign key:
+      -- when a faculty is deleted, the next calendar update deletes their calendar too.
+      CREATE TABLE faculty_calendars (
+        faculty_id   INTEGER PRIMARY KEY,
+        calendar_id  TEXT NOT NULL,
+        shared_with  TEXT,
+        admin_shared TEXT
+      );
+
+      -- What has been sent: one Google event per class or block per faculty. "hash" is the
+      -- event as last sent, so only real changes go to Google again.
+      CREATE TABLE calendar_events (
+        item_key    TEXT PRIMARY KEY,
+        faculty_id  INTEGER NOT NULL,
+        calendar_id TEXT NOT NULL,
+        date        TEXT NOT NULL,
+        google_id   TEXT NOT NULL,
+        hash        TEXT NOT NULL
+      );
+      CREATE INDEX calendar_events_faculty ON calendar_events(faculty_id, date);
+
+      CREATE TABLE calendar_sync_runs (
+        id          INTEGER PRIMARY KEY,
+        started_at  TEXT NOT NULL,
+        finished_at TEXT NOT NULL,
+        ok          INTEGER NOT NULL,
+        error       TEXT,
+        created     INTEGER,
+        updated     INTEGER,
+        deleted     INTEGER,
+        faculty     INTEGER
+      );
+    `);
+    db.exec('PRAGMA user_version = 11');
+  });
+}

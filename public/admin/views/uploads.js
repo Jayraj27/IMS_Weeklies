@@ -71,16 +71,16 @@ const orDash = (value) => value || '–';
 export function facultyUpload() {
   uploadDialog({
     title: 'Upload faculty',
-    placeholder: 'Faculty Code\tName\tCourses\tSubjects\tTopics\tWeek-offs\nRS01\tRiya Shah\tCAT, CMAT\tQA, DILR\tArithmetic; QA 1.5A\tSun, Wed',
-    help: 'Faculty Code is needed; Name is needed for anyone new. Separate list items with commas, and topics with semicolons if their names contain commas. A code already in the program updates that faculty, and a column you leave out stays unchanged. Several rows with the same code are combined.',
+    placeholder: 'Faculty Code\tName\tEmail\tCourses\tSubjects\tTopics\tWeek-offs\nRS01\tRiya Shah\triya@gmail.com\tCAT, CMAT\tQA, DILR\tArithmetic; QA 1.5A\tSun, Wed',
+    help: 'Faculty Code is needed; Name is needed for anyone new. Email is the Google account their schedule calendar is shared with. Separate list items with commas, and topics with semicolons if their names contain commas. A code already in the program updates that faculty, and a column you leave out stays unchanged. Several rows with the same code are combined.',
     parse: parseFacultyUpload,
     summarize: (rows) => {
       const known = new Set(store.state.faculties.map((f) => f.code.toLowerCase()));
       const updated = rows.filter((r) => known.has(r.code.toLowerCase())).length;
       return `Ready: ${rows.length - updated} new, ${updated} to update`;
     },
-    columns: ['Code', 'Name', 'Courses', 'Subjects', 'Topics', 'Week-offs'],
-    cells: (r) => [r.code, orDash(r.name), orDash(r.courses?.join(', ')), orDash(r.subjects?.join(', ')), orDash(r.topics?.join('; ')), r.week_offs ? r.week_offs.join(', ') || 'None' : '–'],
+    columns: ['Code', 'Name', 'Email', 'Courses', 'Subjects', 'Topics', 'Week-offs'],
+    cells: (r) => [r.code, orDash(r.name), r.email === undefined ? '–' : r.email || 'Cleared',orDash(r.courses?.join(', ')), orDash(r.subjects?.join(', ')), orDash(r.topics?.join('; ')), r.week_offs ? r.week_offs.join(', ') || 'None' : '–'],
     send: async (rows) => {
       const { added, updated } = await save('POST', '/faculties/import', { rows });
       toast(`Faculty saved: ${added} added, ${updated} updated`);

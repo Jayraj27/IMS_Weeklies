@@ -419,6 +419,49 @@ function byFaculty(classes) {
 
 /* ---------- the page ---------- */
 
+/* ---------- faculty calendars ---------- */
+
+function calendarAgo(iso) {
+  const minutes = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${plural(minutes, 'minute')} ago`;
+  return `${plural(Math.round(minutes / 60), 'hour')} ago`;
+}
+
+/** One line on how the faculty Google calendars stand, with a way to update them now. */
+function calendarBar() {
+  const bar = h('div', { class: 'calendar-bar no-print', role: 'status' });
+  const draw = (st) => {
+    if (!st.enabled) {
+      bar.replaceChildren(h('span', { class: 'muted' }, 'Faculty Google calendars are off. See “Send the schedule to faculty calendars” in README.md.'));
+      return;
+    }
+    const last = st.last_run;
+    const missing = st.without_email.length ? ` ${plural(st.without_email.length, 'faculty', 'faculty')} without an email get no calendar: ${st.without_email.slice(0, 8).join(', ')}${st.without_email.length > 8 ? '…' : ''}.` : '';
+    bar.replaceChildren(
+      h('span', { class: `chip ${last && !last.ok ? 'warn-strong' : 'ok'}` }, st.running ? 'Updating calendars…' : last ? (last.ok ? 'Calendars up to date' : 'Calendar update failed') : 'Calendars not sent yet'),
+      h('span', { class: 'muted small-text' },
+        `${plural(st.with_email, 'faculty', 'faculty')} with a calendar.`,
+        last ? ` Last update ${calendarAgo(last.finished_at)}${last.ok && (last.created || last.updated || last.deleted) ? `: ${last.created} added, ${last.updated} changed, ${last.deleted} removed` : ''}.` : '',
+        missing),
+      last && !last.ok ? h('span', { class: 'form-error small-text', style: 'margin:0' }, last.error) : '',
+      h('button', { class: 'btn small quiet', type: 'button', disabled: st.running, onclick: async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = 'Updating…';
+        try {
+          const { result, status } = await api('POST', '/calendars/sync');
+          toast(result.ok ? `Calendars updated: ${result.created} added, ${result.updated} changed, ${result.deleted} removed` : 'Some calendar changes failed', !result.ok);
+          draw(status);
+        } catch (err) {
+          toast(err.message, true);
+          e.target.disabled = false;
+        }
+      } }, 'Update now'));
+  };
+  api('GET', '/calendars').then(draw).catch(() => bar.remove());
+  return bar;
+}
+
 export function scheduleView(query) {
   if (query.has('week')) view.week = weekStartOf(query.get('week'));
   if (query.has('batch')) view.batch = query.get('batch');
@@ -542,6 +585,7 @@ export function scheduleView(query) {
       button('Add block', () => eventDialog(null)),
       button('Mark week done', markDone),
       button('Generate week', generate, 'primary')),
+    calendarBar(),
     h('div', { class: 'week-bar no-print' },
       h('button', { class: 'btn', type: 'button', 'aria-label': 'Previous week', onclick: () => go(addDays(view.week, -7)) }, '←'),
       h('b', { class: 'week-label' }, weekLabel(view.week)),

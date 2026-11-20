@@ -100,11 +100,35 @@ it also moves the Month list on. Keep the "What is it?" choices word for word, a
 "Item n:" start of each item's questions: the app reads them. The response
 sheet is read every 5 minutes, and Faculty input > Read responses now reads it on demand.
 
+## Send the schedule to faculty calendars
+
+Each faculty with an email gets their own Google calendar, "IMS schedule – CODE", with
+their classes and meetings. The app makes these calendars itself, with the same Google
+identity as the student sheet, and shares each one with its faculty to view. Google emails
+them about it once; after that it shows in their Google Calendar next to their own events.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), in the same project as
+   the student sheet's key, go to APIs & Services > Library and enable the
+   **Google Calendar API**.
+2. Add each faculty's email: Faculties > Edit, or an Email column in Faculties > Upload
+   faculty. Use the Google account they read their calendar with.
+3. In `.env`, set `CALENDAR_SYNC=on`. To see every faculty calendar yourself, also set
+   `CALENDAR_ADMIN_EMAIL` to your Google account. Restart with `npm start`.
+
+From then on every change is sent within a few seconds: generating a week, moving, editing
+or cancelling a class, blocks, a faculty's email, and approved workshops. Only what changed
+is sent. The calendars hold a week back to eight weeks ahead; older events stay as they
+were. The Weekly schedule page shows when they were last updated, any problem, and who has
+no email, and Update now sends at once. Changes faculty make in the calendar are replaced by
+the schedule. Clearing a faculty's email stops sharing their calendar; deleting a faculty
+deletes it. Faculty can't be sent invitations (Google allows that only with admin rights
+over the IMS Google domain), which is why each gets a shared calendar instead.
+
 ## How the pieces fit
 
 - **Courses** define the faculty slots (Mentor, QA1, VRC1...) that new batches start with.
-- **Faculties** are identified by Faculty Code, with courses, subjects, topics and
-  week-offs. Upload a list with Faculties > Upload faculty. A known code updates that
+- **Faculties** are identified by Faculty Code, with an email for their calendar, courses,
+  subjects, topics and week-offs. Upload a list with Faculties > Upload faculty. A known code updates that
   faculty, and a column left out stays unchanged.
 - **Batch faculty:** each slot has one primary faculty and substitutes in order of
   preference. Upload with Batches > Upload batch faculty: Batch, Slot, Faculty Code,

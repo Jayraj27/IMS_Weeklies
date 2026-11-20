@@ -10,6 +10,7 @@ function facultyDialog(faculty) {
   const { courses } = store.state;
   const code = h('input', { required: true, maxLength: 20, value: faculty?.code ?? '' });
   const name = h('input', { required: true, maxLength: 120, value: faculty?.name ?? '' });
+  const email = h('input', { type: 'email', maxLength: 200, value: faculty?.email ?? '', placeholder: 'name@gmail.com', autocomplete: 'off' });
   const presetCourse = !faculty && typeof filter.course === 'number' ? [filter.course] : [];
   const courseBoxes = checkGroup(
     'Courses they teach',
@@ -28,6 +29,7 @@ function facultyDialog(faculty) {
     title: faculty ? `Edit ${faculty.name}` : 'Add faculty',
     body: [
       h('div', { class: 'field-row' }, field('Faculty code', code), field('Name', name)),
+      field('Email for their calendar', email, 'The Google account their schedule calendar is shared with. Leave empty for no calendar.'),
       courseBoxes,
       field('Subjects they can teach', subjects),
       field('Topics they can teach', topics, 'Suggestions come from your master flows. Use topic codes or areas, whichever suits you.'),
@@ -37,6 +39,7 @@ function facultyDialog(faculty) {
       const body = {
         code: code.value,
         name: name.value,
+        email: email.value,
         course_ids: courseBoxes.values(),
         subjects: subjects.values(),
         topics: topics.values(),
@@ -93,7 +96,7 @@ function facultyTable() {
             'tr',
             null,
             h('td', { class: 'code' }, f.code),
-            h('td', { class: 'nowrap' }, f.name),
+            h('td', { class: 'nowrap' }, f.name, h('div', { class: 'muted small-text' }, f.email || 'No email, so no calendar')),
             h('td', null, f.course_ids.length
               ? h('div', { class: 'chips' }, f.course_ids.map((id) => h('span', { class: 'chip accent' }, courseName(id))))
               : h('span', { class: 'chip warn' }, 'No course')),

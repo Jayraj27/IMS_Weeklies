@@ -26,5 +26,9 @@ services:
         sync: false
       - key: INPUT_FORM_URL
         sync: false
+      - key: CALENDAR_SYNC
+        value: "off"
+      - key: CALENDAR_ADMIN_EMAIL
+        sync: false
       - key: SHEET_SYNC_MINUTES
         value: "5"

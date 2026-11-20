@@ -4,6 +4,7 @@ import { studentsRouter } from './students/routes.js';
 import { scheduleRouter } from './schedule/routes.js';
 import { reportsRouter } from './reports/routes.js';
 import { inputsRouter } from './inputs/routes.js';
+import { calendarStatus, requestCalendarSync, runCalendarSync } from './calendar/sync.js';
 import { syncStatus } from './students/sync.js';
 import { activeStudentCount, linkReport, reconcileStudentLinks } from './students/link.js';
 import { normalizeCode, variantKey, yearFromCode } from './students/variants.js';
@@ -14,8 +15,19 @@ import { MENTOR, buildCourseSheet, readCourseSheet, sheetRows, slotsFor } from '
 
 export const api = express.Router();
 api.use(express.json({ limit: '5mb' }));
+// Any saved change may move a class, a block or a faculty, so faculty calendars are
+// brought up to date shortly after. Only real differences are sent to Google.
+api.use((req, res, next) => {
+  if (req.method !== 'GET' && req.path !== '/calendars/sync') res.on('finish', () => { if (res.statusCode < 400) requestCalendarSync(); });
+  next();
+});
 api.use('/students', studentsRouter);
 api.use('/schedule', scheduleRouter);
+api.get('/calendars', (_req, res) => res.json(calendarStatus()));
+api.post('/calendars/sync', async (_req, res) => {
+  const result = await runCalendarSync();
+  res.json({ result, status: calendarStatus() });
+});
 api.use('/reports', reportsRouter);
 api.use('/inputs', inputsRouter);
 
@@ -381,7 +393,15 @@ function parseFaculty(body) {
   for (const day of weekOffs) {
     if (!DAYS.includes(day)) throw invalid(`"${day}" is not a day of the week.`);
   }
-  return { code, name, courseIds, subjects: [...subjects.values()], topics: parseTopics(body.topics), weekOffs };
+  return { code, name, email: emailOf(body.email), courseIds, subjects: [...subjects.values()], topics: parseTopics(body.topics), weekOffs };
+}
+
+/** The Google account a faculty's calendar is shared with; empty means none. */
+function emailOf(value, prefix = '') {
+  const email = String(value ?? '').trim().toLowerCase();
+  if (!email) return null;
+  if (email.length > 200 || !/^[^\s@,;]+@[^\s@,;]+\.[a-z]{2,}$/.test(email)) throw invalid(`${prefix}"${email}" is not an email address.`);
+  return email;
 }
 
 function parseTopics(value) {
@@ -444,6 +464,13 @@ api.post('/faculties/import', (req, res) => {
       courseIds = [...new Set(courseIds)];
     }
 
+    let email;
+    try {
+      email = row.email === undefined ? undefined : emailOf(row.email, `${code}: `);
+    } catch (err) {
+      errors.push(err.message);
+    }
+
     const weekOffs = row.week_offs === undefined ? null : [...new Set(list(row.week_offs, 'Week-offs'))];
     for (const day of weekOffs ?? []) {
       if (!DAYS.includes(day)) errors.push(`${code}: "${day}" is not a day of the week.`);
@@ -458,7 +485,7 @@ api.post('/faculties/import', (req, res) => {
       }
       subjects = [...unique.values()];
     }
-    return { code, name, found, courseIds, subjects, weekOffs, topics: row.topics === undefined ? null : parseTopics(row.topics) };
+    return { code, name, email, found, courseIds, subjects, weekOffs, topics: row.topics === undefined ? null : parseTopics(row.topics) };
   });
 
   const codes = parsed.map((p) => p.code.toLowerCase());
@@ -473,10 +500,10 @@ api.post('/faculties/import', (req, res) => {
       let id = p.found?.id;
       if (id) {
         // The code keeps its original spelling; "rs01" in an upload is still RS01.
-        db.prepare('UPDATE faculties SET name = ? WHERE id = ?').run(p.name, id);
+        db.prepare('UPDATE faculties SET name = ?, email = ? WHERE id = ?').run(p.name, p.email === undefined ? p.found.email : p.email, id);
         updated += 1;
       } else {
-        id = Number(db.prepare('INSERT INTO faculties (code, name) VALUES (?, ?)').run(p.code, p.name).lastInsertRowid);
+        id = Number(db.prepare('INSERT INTO faculties (code, name, email) VALUES (?, ?, ?)').run(p.code, p.name, p.email ?? null).lastInsertRowid);
         added += 1;
       }
       writeFacultyDetails(id, {
@@ -495,7 +522,7 @@ api.post('/faculties', (req, res) => {
   assertCodeFree(data.code);
   const id = tx(() => {
     const facultyId = Number(
-      db.prepare('INSERT INTO faculties (code, name) VALUES (?, ?)').run(data.code, data.name).lastInsertRowid,
+      db.prepare('INSERT INTO faculties (code, name, email) VALUES (?, ?, ?)').run(data.code, data.name, data.email).lastInsertRowid,
     );
     writeFacultyDetails(facultyId, data);
     return facultyId;
@@ -506,9 +533,10 @@ api.post('/faculties', (req, res) => {
 api.put('/faculties/:id', (req, res) => {
   const faculty = findOr404('faculties', req.params.id, 'faculty');
   const data = parseFaculty(req.body);
+  if (!('email' in req.body)) data.email = faculty.email; // left out: unchanged
   assertCodeFree(data.code, faculty.id);
   tx(() => {
-    db.prepare('UPDATE faculties SET code = ?, name = ? WHERE id = ?').run(data.code, data.name, faculty.id);
+    db.prepare('UPDATE faculties SET code = ?, name = ?, email = ? WHERE id = ?').run(data.code, data.name, data.email, faculty.id);
     writeFacultyDetails(faculty.id, data);
   });
   res.json({ id: faculty.id });
